@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">RecetApp</string>
+    <string name="handle_placeholder">\@usuario</string>
+</resources>

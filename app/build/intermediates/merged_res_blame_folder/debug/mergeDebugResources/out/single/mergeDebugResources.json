@@ -1,0 +1,34 @@
+[
+    {
+        "merged": "com.example.recetapp-debug-56:/layout_item_ingredient.xml.flat",
+        "source": "com.example.recetapp-main-58:/layout/item_ingredient.xml"
+    },
+    {
+        "merged": "com.example.recetapp-debug-56:/drawable_circle_bg.xml.flat",
+        "source": "com.example.recetapp-main-58:/drawable/circle_bg.xml"
+    },
+    {
+        "merged": "com.example.recetapp-debug-56:/layout_activity_create_recipe.xml.flat",
+        "source": "com.example.recetapp-main-58:/layout/activity_create_recipe.xml"
+    },
+    {
+        "merged": "com.example.recetapp-debug-56:/layout_step_ingredients.xml.flat",
+        "source": "com.example.recetapp-main-58:/layout/step_ingredients.xml"
+    },
+    {
+        "merged": "com.example.recetapp-debug-56:/layout_step_visibility.xml.flat",
+        "source": "com.example.recetapp-main-58:/layout/step_visibility.xml"
+    },
+    {
+        "merged": "com.example.recetapp-debug-56:/layout_item_recipe_step.xml.flat",
+        "source": "com.example.recetapp-main-58:/layout/item_recipe_step.xml"
+    },
+    {
+        "merged": "com.example.recetapp-debug-56:/layout_step_recipe_steps.xml.flat",
+        "source": "com.example.recetapp-main-58:/layout/step_recipe_steps.xml"
+    },
+    {
+        "merged": "com.example.recetapp-debug-56:/layout_step_info.xml.flat",
+        "source": "com.example.recetapp-main-58:/layout/step_info.xml"
+    }
+]
