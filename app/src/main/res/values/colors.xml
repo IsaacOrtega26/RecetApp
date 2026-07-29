@@ -2,4 +2,11 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="orange_primary">#B35E1A</color>
+    <color name="white_translucent">#40FFFFFF</color>
+    <color name="black_overlay">#80000000</color>
+    <color name="background_cream">#FDF7F2</color>
+    <color name="input_background">#F2E9E1</color>
+    <color name="text_primary">#2D1B08</color>
+    <color name="text_hint">#9E8E81</color>
 </resources>

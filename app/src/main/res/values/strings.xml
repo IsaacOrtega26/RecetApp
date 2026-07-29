@@ -1,3 +1,19 @@
 <resources>
     <string name="app_name">RecetApp</string>
+    <string name="welcome_description">La red social de panaderos,\npasteleros y amantes de la\nrepostería.</string>
+    <string name="btn_create_account">Crear cuenta</string>
+    <string name="btn_login">Iniciar sesión</string>
+    <string name="register_title">Crea tu cuenta</string>
+    <string name="register_subtitle">Únete a la comunidad panadera.</string>
+    <string name="label_full_name">Nombre completo</string>
+    <string name="hint_full_name">Lucía Mendoza</string>
+    <string name="label_email">Correo electrónico</string>
+    <string name="hint_email">lucia@obrador.com</string>
+    <string name="label_password">Contraseña</string>
+    <string name="hint_password">Mínimo 8 caracteres</string>
+    <string name="btn_register">Registrarse</string>
+    <string name="footer_login">¿Ya tienes cuenta? Inicia sesión</string>
+    <string name="login_title">Bienvenido de nuevo</string>
+    <string name="login_subtitle">Ingresa tus credenciales para continuar.</string>
+    <string name="footer_register">¿No tienes cuenta? Regístrate</string>
 </resources>
