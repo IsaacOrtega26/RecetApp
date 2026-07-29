@@ -14,6 +14,11 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.recetapp.R
 
+import androidx.lifecycle.lifecycleScope
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
+import kotlinx.coroutines.launch
+
 class LoginActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,8 +54,19 @@ class LoginActivity : AppCompatActivity() {
             val password = etPassword.text.toString().trim()
 
             if (validateForm(email, password, etEmail, etPassword)) {
-                Toast.makeText(this, "¡Sesión iniciada!", Toast.LENGTH_SHORT).show()
-                // Lógica de autenticación futura
+                lifecycleScope.launch {
+                    try {
+                        SupabaseConfig.client.auth.signInWith(Email) {
+                            this.email = email
+                            this.password = password
+                        }
+                        Toast.makeText(this@LoginActivity, "¡Sesión iniciada!", Toast.LENGTH_SHORT).show()
+                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
+                        finish()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@LoginActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
             }
         }
     }
