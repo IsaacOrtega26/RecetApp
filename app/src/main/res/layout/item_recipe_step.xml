@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="8dp"
+    android:gravity="top">
+
+    <TextView
+        android:id="@+id/tvStepNumber"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:background="@drawable/circle_bg"
+        android:gravity="center"
+        android:textColor="@android:color/white"
+        android:textStyle="bold"
+        android:text="1" />
+
+    <EditText
+        android:id="@+id/etStepText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:hint="Describe este paso..."
+        android:inputType="textMultiLine" />
+
+</LinearLayout>

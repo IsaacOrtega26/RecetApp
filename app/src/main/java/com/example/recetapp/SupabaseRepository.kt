@@ -91,6 +91,18 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
+    suspend fun getRecetaById(recetaId: String): Receta? = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("recetas")
+                .select {
+                    filter { eq("receta_id", recetaId) }
+                }.decodeSingleOrNull<Receta>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     suspend fun insertReceta(receta: Receta): Receta? = withContext(Dispatchers.IO) {
         try {
             supabase.from("recetas").insert(receta) {

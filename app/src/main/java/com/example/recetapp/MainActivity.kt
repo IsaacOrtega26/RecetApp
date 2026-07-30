@@ -91,8 +91,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         feedBinding.btnGoToRecipes.setOnClickListener {
-            Toast.makeText(this, "Refrescando recetas... 📖", Toast.LENGTH_SHORT).show()
-            // Recargar lógica
+            startActivity(Intent(this, MyRecipesActivity::class.java))
         }
 
         feedBinding.btnLogoutFromFeed.setOnClickListener {
@@ -212,7 +211,13 @@ class MainActivity : AppCompatActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = 
             ViewHolder(ItemRecipeGridBinding.inflate(LayoutInflater.from(parent.context), parent, false))
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            holder.binding.tvTitle.text = recipes[position].nombre
+            val recipe = recipes[position]
+            holder.binding.tvTitle.text = recipe.nombre
+            holder.itemView.setOnClickListener {
+                val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
+                intent.putExtra("RECIPE_ID", recipe.id)
+                startActivity(intent)
+            }
         }
         override fun getItemCount() = recipes.size
         inner class ViewHolder(val binding: ItemRecipeGridBinding) : RecyclerView.ViewHolder(binding.root)
@@ -230,6 +235,12 @@ class MainActivity : AppCompatActivity() {
             holder.binding.tvTitle.text = recipe.nombre
             holder.binding.tvDescription.text = recipe.descripcion ?: "Sin descripción"
             holder.binding.tvDifficulty.text = "${recipe.dificultad?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } ?: "Media"} 🍰"
+            
+            holder.itemView.setOnClickListener {
+                val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
+                intent.putExtra("RECIPE_ID", recipe.id)
+                startActivity(intent)
+            }
         }
         override fun getItemCount() = recipes.size
         inner class ViewHolder(val binding: ItemRecipeFeedBinding) : RecyclerView.ViewHolder(binding.root)
