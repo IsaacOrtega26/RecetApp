@@ -1,9 +1,6 @@
-# Tareas para implementar el Inicio de Sesión
+# Tareas para solución definitiva de registro y perfiles
 
-- [x] Añadir strings para inicio de sesión `[x]`
-- [x] Crear el layout `activity_login.xml` `[x]`
-- [x] Crear la actividad `LoginActivity.kt` con validación `[x]`
-- [x] Registrar `LoginActivity` en el Manifest `[x]`
-- [x] Configurar navegación en `MainActivity` `[x]`
-- [x] Conectar Registro con Inicio de sesión `[x]`
-- [x] Verificar funcionamiento y estilos `[x]`
+- [x] Optimizar `RecipeModels.kt` (ignorar campos automáticos de BD) `[x]`
+- [x] Reforzar `RegisterActivity.kt` para manejar errores de RLS y usuarios existentes `[x]`
+- [x] Implementar auto-creación de perfil en `LoginActivity.kt` `[x]`
+- [ ] Verificar funcionamiento con un nuevo registro `[/]`

@@ -16,9 +16,9 @@ data class Usuario(
     @SerialName("total_seguidores") val totalSeguidores: Int = 0,
     @SerialName("total_seguidos") val totalSeguidos: Int = 0,
     @SerialName("total_recetas") val totalRecetas: Int = 0,
-    @SerialName("fecha_creacion") val fechaCreacion: String? = null,
-    @SerialName("fecha_actualizacion") val fechaActualizacion: String? = null,
-    val activo: Boolean = true
+    val activo: Boolean = true,
+    val contrasena: String? = null
+    // Nota: Omitimos fecha_creacion y fecha_actualizacion para que la BD use sus valores por defecto
 )
 
 @Serializable

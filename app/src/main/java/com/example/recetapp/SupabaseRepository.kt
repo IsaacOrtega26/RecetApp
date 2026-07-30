@@ -28,6 +28,42 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
+    suspend fun insertUsuario(usuario: Usuario): Boolean = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("usuarios").insert(usuario)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Imprimimos el error detallado para saber qué falló
+            println("ERROR SUPABASE INSERT: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun getUsuarioByUid(uid: String): Usuario? = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("usuarios")
+                .select {
+                    filter { eq("uid_usuario", uid) }
+                }.decodeSingleOrNull<Usuario>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun getUsuarioByEmail(email: String): Usuario? = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("usuarios")
+                .select {
+                    filter { eq("email", email) }
+                }.decodeSingleOrNull<Usuario>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     // --- RECETAS ---
 
     suspend fun getRecetasByAutor(autorUid: String): List<Receta> = withContext(Dispatchers.IO) {
@@ -35,6 +71,18 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             supabase.from("recetas")
                 .select {
                     filter { eq("autor_uid", autorUid) }
+                    order("fecha_creacion", Order.DESCENDING)
+                }.decodeList<Receta>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun getAllRecetas(): List<Receta> = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("recetas")
+                .select {
                     order("fecha_creacion", Order.DESCENDING)
                 }.decodeList<Receta>()
         } catch (e: Exception) {

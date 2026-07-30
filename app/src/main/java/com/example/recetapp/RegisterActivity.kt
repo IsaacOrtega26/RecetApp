@@ -2,6 +2,7 @@ package com.example.recetapp
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.util.Patterns
 import android.view.View
 import android.widget.Button
@@ -20,12 +21,16 @@ import io.github.jan.supabase.auth.providers.builtin.Email
 import kotlinx.coroutines.launch
 
 class RegisterActivity : AppCompatActivity() {
+
+    private val repository = SupabaseRepository(SupabaseConfig.client)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_register)
         
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.register_main)) { v, insets ->
+        val rootView = findViewById<View>(R.id.register_main)
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
@@ -57,19 +62,67 @@ class RegisterActivity : AppCompatActivity() {
             if (validateForm(name, email, password, etFullName, etEmail, etPassword)) {
                 lifecycleScope.launch {
                     try {
-                        SupabaseConfig.client.auth.signUpWith(Email) {
-                            this.email = email
-                            this.password = password
+                        Log.d("RecetApp", "Registrando usuario: $email")
+                        // 1. Registro en Supabase Auth
+                        val authResponse = try {
+                            SupabaseConfig.client.auth.signUpWith(Email) {
+                                this.email = email
+                                this.password = password
+                            }
+                        } catch (e: Exception) {
+                            if (e.message?.contains("already registered", ignoreCase = true) == true) {
+                                Log.d("RecetApp", "El usuario ya existe en Auth, intentando recuperar perfil...")
+                                null // Continuamos para intentar guardar el perfil si falta
+                            } else {
+                                throw e
+                            }
                         }
-                        Toast.makeText(this@RegisterActivity, "¡Cuenta creada con éxito!", Toast.LENGTH_SHORT).show()
-                        startActivity(Intent(this@RegisterActivity, MainActivity::class.java))
-                        finish()
+
+                        // 2. Intentar guardar en la tabla 'usuarios'
+                        // Obtenemos el ID ya sea del registro nuevo o de la sesión actual
+                        val userId = authResponse?.id ?: SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
+                        
+                        if (userId != null) {
+                            val handle = email.substringBefore("@").lowercase().replace(".", "_")
+                            val nuevoUsuario = Usuario(
+                                uid = userId,
+                                email = email,
+                                nombreUsuario = handle,
+                                nombreCompleto = name,
+                                contrasena = password,
+                                rol = "usuario",
+                                totalRecetas = 0,
+                                activo = true
+                            )
+                            
+                            Log.d("RecetApp", "Guardando perfil en tabla usuarios: $handle")
+                            val isSaved = repository.insertUsuario(nuevoUsuario)
+                            
+                            if (isSaved) {
+                                Toast.makeText(this@RegisterActivity, "¡Cuenta creada y perfil guardado!", Toast.LENGTH_SHORT).show()
+                                navigateToMain()
+                            } else {
+                                Log.e("RecetApp", "Fallo al insertar en tabla 'usuarios'. Probablemente RLS.")
+                                Toast.makeText(this@RegisterActivity, "Error de base de datos. Verifica permisos RLS.", Toast.LENGTH_LONG).show()
+                            }
+                        } else {
+                            // Si no hay ID y no se pudo registrar, es que algo falló antes
+                            Toast.makeText(this@RegisterActivity, "El usuario ya existe. Por favor, inicia sesión.", Toast.LENGTH_LONG).show()
+                        }
                     } catch (e: Exception) {
+                        Log.e("RecetApp", "ERROR EN REGISTRO", e)
                         Toast.makeText(this@RegisterActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
         }
+    }
+
+    private fun navigateToMain() {
+        val intent = Intent(this@RegisterActivity, MainActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        startActivity(intent)
+        finish()
     }
 
     private fun validateForm(
