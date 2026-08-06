@@ -13,12 +13,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.example.recetapp.R
-
 import androidx.lifecycle.lifecycleScope
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 class RegisterActivity : AppCompatActivity() {
 
@@ -26,6 +26,7 @@ class RegisterActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemUI()
         enableEdgeToEdge()
         setContentView(R.layout.activity_register)
         
@@ -59,58 +60,42 @@ class RegisterActivity : AppCompatActivity() {
             val email = etEmail.text.toString().trim()
             val password = etPassword.text.toString().trim()
 
-            if (validateForm(name, email, password, etFullName, etEmail, etPassword)) {
-                lifecycleScope.launch {
-                    try {
-                        Log.d("RecetApp", "Registrando usuario: $email")
-                        // 1. Registro en Supabase Auth
-                        val authResponse = try {
-                            SupabaseConfig.client.auth.signUpWith(Email) {
-                                this.email = email
-                                this.password = password
-                            }
-                        } catch (e: Exception) {
-                            if (e.message?.contains("already registered", ignoreCase = true) == true) {
-                                Log.d("RecetApp", "El usuario ya existe en Auth, intentando recuperar perfil...")
-                                null // Continuamos para intentar guardar el perfil si falta
-                            } else {
-                                throw e
-                            }
-                        }
+            if (!validateForm(name, email, password, etFullName, etEmail, etPassword)) return@setOnClickListener
 
-                        // 2. Intentar guardar en la tabla 'usuarios'
-                        // Obtenemos el ID ya sea del registro nuevo o de la sesión actual
-                        val userId = authResponse?.id ?: SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
-                        
-                        if (userId != null) {
-                            val handle = email.substringBefore("@").lowercase().replace(".", "_")
-                            val nuevoUsuario = Usuario(
-                                uid = userId,
-                                email = email,
-                                nombreUsuario = handle,
-                                nombreCompleto = name,
-                                contrasena = password,
-                                rol = "usuario",
-                                totalRecetas = 0,
-                                activo = true
-                            )
-                            
-                            Log.d("RecetApp", "Guardando perfil en tabla usuarios: $handle")
-                            val isSaved = repository.insertUsuario(nuevoUsuario)
-                            
-                            if (isSaved) {
-                                Toast.makeText(this@RegisterActivity, "¡Cuenta creada y perfil guardado!", Toast.LENGTH_SHORT).show()
-                                navigateToMain()
-                            } else {
-                                Log.e("RecetApp", "Fallo al insertar en tabla 'usuarios'. Probablemente RLS.")
-                                Toast.makeText(this@RegisterActivity, "Error de base de datos. Verifica permisos RLS.", Toast.LENGTH_LONG).show()
-                            }
-                        } else {
-                            // Si no hay ID y no se pudo registrar, es que algo falló antes
-                            Toast.makeText(this@RegisterActivity, "El usuario ya existe. Por favor, inicia sesión.", Toast.LENGTH_LONG).show()
-                        }
-                    } catch (e: Exception) {
-                        Log.e("RecetApp", "ERROR EN REGISTRO", e)
+            lifecycleScope.launch {
+                try {
+                    Log.d("RecetApp", "Registrando usuario: $email")
+                    
+                    // 1. Registro en Auth
+                    SupabaseConfig.client.auth.signUpWith(Email) {
+                        this.email = email
+                        this.password = password
+                    }
+
+                    // 2. Crear perfil en tabla 'usuarios'
+                    val userId = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
+                    if (userId != null) {
+                        val handle = email.substringBefore("@").lowercase().replace(".", "_")
+                        val nuevoUsuario = Usuario(
+                            uid = userId,
+                            email = email,
+                            nombreUsuario = handle,
+                            nombreCompleto = name,
+                            rol = "usuario",
+                            totalRecetas = 0,
+                            activo = true
+                        )
+                        repository.insertUsuario(nuevoUsuario)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@RegisterActivity, "¡Cuenta creada con éxito!", Toast.LENGTH_SHORT).show()
+                        startActivity(Intent(this@RegisterActivity, MainActivity::class.java))
+                        finishAffinity()
+                    }
+                } catch (e: Exception) {
+                    Log.e("RecetApp", "Error en registro", e)
+                    withContext(Dispatchers.Main) {
                         Toast.makeText(this@RegisterActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
@@ -118,28 +103,12 @@ class RegisterActivity : AppCompatActivity() {
         }
     }
 
-    private fun navigateToMain() {
-        val intent = Intent(this@RegisterActivity, MainActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        startActivity(intent)
-        finish()
-    }
-
-    private fun validateForm(
-        name: String, 
-        email: String, 
-        password: String,
-        etName: EditText,
-        etEmail: EditText,
-        etPass: EditText
-    ): Boolean {
+    private fun validateForm(name: String, email: String, password: String, etName: EditText, etEmail: EditText, etPass: EditText): Boolean {
         var isValid = true
-
         if (name.isEmpty()) {
             etName.error = "El nombre es obligatorio"
             isValid = false
         }
-
         if (email.isEmpty()) {
             etEmail.error = "El correo es obligatorio"
             isValid = false
@@ -147,15 +116,19 @@ class RegisterActivity : AppCompatActivity() {
             etEmail.error = "Correo no válido"
             isValid = false
         }
-
         if (password.isEmpty()) {
             etPass.error = "La contraseña es obligatoria"
             isValid = false
-        } else if (password.length < 8) {
-            etPass.error = "Mínimo 8 caracteres"
+        } else if (password.length < 6) { // Supabase default min is 6
+            etPass.error = "Mínimo 6 caracteres"
             isValid = false
         }
-
         return isValid
+    }
+
+    private fun hideSystemUI() {
+        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
     }
 }

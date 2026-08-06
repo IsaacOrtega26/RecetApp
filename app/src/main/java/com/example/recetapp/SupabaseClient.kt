@@ -3,6 +3,7 @@ package com.example.recetapp
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.storage.Storage
 import io.ktor.client.plugins.HttpTimeout
 import io.github.jan.supabase.annotations.SupabaseInternal
 
@@ -14,6 +15,7 @@ object SupabaseConfig {
     ) {
         install(Postgrest)
         install(Auth)
+        install(Storage)
 
         httpConfig {
             install(HttpTimeout) {

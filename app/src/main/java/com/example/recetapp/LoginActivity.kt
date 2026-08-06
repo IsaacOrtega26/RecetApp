@@ -13,23 +13,18 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.example.recetapp.R
-
 import androidx.lifecycle.lifecycleScope
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
-import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 class LoginActivity : AppCompatActivity() {
 
-    private val repository = SupabaseRepository(SupabaseConfig.client)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemUI()
         enableEdgeToEdge()
         setContentView(R.layout.activity_login)
         
@@ -66,110 +61,36 @@ class LoginActivity : AppCompatActivity() {
             val email = etEmail.text.toString().trim()
             val password = etPassword.text.toString().trim()
 
-            if (email.isEmpty()) {
-                etEmail.error = "El correo es obligatorio"
-                return@setOnClickListener
-            }
-            if (password.isEmpty()) {
-                etPassword.error = "La contraseña es obligatoria"
-                return@setOnClickListener
-            }
+            if (!validateForm(email, password, etEmail, etPassword)) return@setOnClickListener
 
             setLoadingState(true, btnLogin, progressBar)
 
             lifecycleScope.launch {
                 try {
-                    Log.d("RecetApp", "--- INICIO LOGIN ---")
+                    Log.d("RecetApp", "Intentando iniciar sesión para: $email")
                     
-                    withTimeout(40000) { 
-                        try {
-                            // 1. Intento de Autenticación oficial
-                            Log.d("RecetApp", "Paso 1: Validando credenciales en Auth...")
-                            SupabaseConfig.client.auth.signInWith(Email) {
-                                this.email = email
-                                this.password = password
-                            }
-                        } catch (e: Exception) {
-                            // SI FALLA POR CONFIRMACIÓN: Bypass por Base de Datos
-                            if (e.message?.contains("Email not confirmed", ignoreCase = true) == true) {
-                                Log.d("RecetApp", "Email no confirmado detectado. Iniciando Bypass...")
-                                val profile = repository.getUsuarioByEmail(email)
-                                if (profile != null && profile.contrasena == password) {
-                                    Log.d("RecetApp", "Bypass exitoso: Contraseña coincide en BD.")
-                                    // Permitimos el paso aunque no haya sesión oficial (MainActivity cargará por email)
-                                    withContext(Dispatchers.Main) {
-                                        val intent = Intent(this@LoginActivity, MainActivity::class.java)
-                                        intent.putExtra("email_forced", email)
-                                        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                        startActivity(intent)
-                                        finish()
-                                    }
-                                    return@withTimeout
-                                } else {
-                                    throw e // Si no coincide la contraseña en BD, lanzamos el error original
-                                }
-                            } else {
-                                throw e // Otros errores de Auth
-                            }
-                        }
-                        
-                        // 2. Si el Auth oficial funcionó, cargamos perfil normal
-                        Log.d("RecetApp", "Auth oficial exitoso. Recuperando perfil...")
-                        var profile = repository.getUsuarioByEmail(email)
-
-                        // AUTO-CREACIÓN DE PERFIL: Si el usuario existe en Auth pero no en BD
-                        if (profile == null) {
-                            Log.d("RecetApp", "Usuario sin perfil detectado. Creando perfil de emergencia...")
-                            val userId = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
-                            if (userId != null) {
-                                val handle = email.substringBefore("@").lowercase().replace(".", "_")
-                                val baseProfile = Usuario(
-                                    uid = userId,
-                                    email = email,
-                                    nombreUsuario = handle,
-                                    nombreCompleto = handle.replace("_", " ").replaceFirstChar { it.uppercase() },
-                                    contrasena = password,
-                                    rol = "usuario",
-                                    totalRecetas = 0,
-                                    activo = true
-                                )
-                                repository.insertUsuario(baseProfile)
-                                profile = baseProfile
-                            }
-                        }
-                        
-                        withContext(Dispatchers.Main) {
-                            if (profile != null) {
-                                Toast.makeText(this@LoginActivity, "¡Bienvenido, ${profile.nombreCompleto ?: profile.nombreUsuario}!", Toast.LENGTH_SHORT).show()
-                            }
-                            
-                            val intent = Intent(this@LoginActivity, MainActivity::class.java)
-                            intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                            startActivity(intent)
-                            finish()
-                        }
+                    SupabaseConfig.client.auth.signInWith(Email) {
+                        this.email = email
+                        this.password = password
                     }
-                } catch (e: HttpRequestTimeoutException) {
-                    Log.e("RecetApp", "ERROR DE RED: Timeout de Supabase (30s)")
+
+                    Log.d("RecetApp", "Sesión iniciada con éxito")
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@LoginActivity, "El servidor tarda demasiado. Verifica tu internet.", Toast.LENGTH_LONG).show()
-                        setLoadingState(false, btnLogin, progressBar)
+                        Toast.makeText(this@LoginActivity, "¡Bienvenido de nuevo!", Toast.LENGTH_SHORT).show()
+                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
+                        finishAffinity()
                     }
                 } catch (e: Exception) {
-                    Log.e("RecetApp", "ERROR EN LOGIN: ${e.message}", e)
+                    Log.e("RecetApp", "Error de autenticación", e)
                     withContext(Dispatchers.Main) {
-                        val message = if (e.message?.contains("Email not confirmed", ignoreCase = true) == true) {
-                            "Por favor, confirma tu correo electrónico antes de entrar."
-                        } else if (e.message?.contains("Invalid login credentials", ignoreCase = true) == true) {
-                            "Correo o contraseña incorrectos."
-                        } else {
-                            "Error: ${e.message}"
+                        val errorMsg = when {
+                            e.message?.contains("Invalid login credentials") == true -> "Correo o contraseña incorrectos"
+                            e.message?.contains("Email not confirmed") == true -> "Debes confirmar tu correo"
+                            else -> "Error: ${e.message}"
                         }
-                        Toast.makeText(this@LoginActivity, message, Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@LoginActivity, errorMsg, Toast.LENGTH_LONG).show()
                         setLoadingState(false, btnLogin, progressBar)
                     }
-                } finally {
-                    Log.d("RecetApp", "--- FIN PROCESO LOGIN ---")
                 }
             }
         }
@@ -177,16 +98,11 @@ class LoginActivity : AppCompatActivity() {
 
     private fun setLoadingState(isLoading: Boolean, button: Button, progress: View) {
         button.isEnabled = !isLoading
-        button.alpha = if (isLoading) 0.5f else 1.0f
+        button.alpha = if (isLoading) 0.7f else 1.0f
         progress.visibility = if (isLoading) View.VISIBLE else View.GONE
     }
 
-    private fun validateForm(
-        email: String, 
-        password: String,
-        etEmail: EditText,
-        etPass: EditText
-    ): Boolean {
+    private fun validateForm(email: String, password: String, etEmail: EditText, etPass: EditText): Boolean {
         var isValid = true
         if (email.isEmpty()) {
             etEmail.error = "El correo es obligatorio"
@@ -200,5 +116,11 @@ class LoginActivity : AppCompatActivity() {
             isValid = false
         }
         return isValid
+    }
+
+    private fun hideSystemUI() {
+        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
     }
 }
