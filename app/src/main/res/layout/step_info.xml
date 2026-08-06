@@ -9,26 +9,40 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Nombre de la receta"
-        android:textStyle="bold" />
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:textSize="18sp" />
 
     <EditText
         android:id="@+id/etRecipeName"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Tarta de frambuesa..." />
+        android:layout_height="60dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_input_field"
+        android:hint="Ej. Tarta de Manzana"
+        android:paddingHorizontal="16dp"
+        android:textColor="@color/black"
+        android:textSize="18sp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="24dp"
         android:text="Tiempo estimado (minutos)"
-        android:textStyle="bold" />
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:textSize="18sp" />
 
     <EditText
         android:id="@+id/etTime"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="120"
-        android:inputType="number" />
+        android:layout_height="60dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_input_field"
+        android:hint="Ej. 45"
+        android:inputType="number"
+        android:paddingHorizontal="16dp"
+        android:textColor="@color/black"
+        android:textSize="18sp" />
 
 </LinearLayout>

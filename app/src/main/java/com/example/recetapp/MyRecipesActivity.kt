@@ -18,6 +18,7 @@ class MyRecipesActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemUI()
         binding = ActivityMyRecipesBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -65,5 +66,11 @@ class MyRecipesActivity : AppCompatActivity() {
         override fun getItemCount() = list.size
 
         inner class ViewHolder(val binding: ItemRecipeGridBinding) : RecyclerView.ViewHolder(binding.root)
+    }
+
+    private fun hideSystemUI() {
+        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
     }
 }

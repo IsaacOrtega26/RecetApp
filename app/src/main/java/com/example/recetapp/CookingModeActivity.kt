@@ -3,9 +3,11 @@ package com.example.recetapp
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.CheckBox
+import android.widget.TextView
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -36,18 +38,18 @@ class CookingModeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemUI()
         binding = ActivityCookingModeBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         recipeId = intent.getStringExtra("RECIPE_ID")
+        Log.d("RecetApp", "Modo Cocina - Cargando ID: $recipeId")
 
         binding.toolbar.setNavigationOnClickListener { finish() }
 
         binding.btnPlayPause.setOnClickListener {
             running = !running
-            binding.btnPlayPause.setImageResource(
-                if (running) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-            )
+            binding.btnPlayPause.setImageResource(if (running) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
         }
 
         binding.btnResetTimer.setOnClickListener {
@@ -84,10 +86,17 @@ class CookingModeActivity : AppCompatActivity() {
                     steps = repository.getPasos(id)
                     val ingredients = repository.getIngredientes(id)
                     
+                    Log.d("RecetApp", "Modo Cocina - Pasos: ${steps.size}, Ingredientes: ${ingredients.size}")
+
                     binding.rvIngredients.adapter = IngredientCheckAdapter(ingredients)
-                    updateStepUI()
+                    if (steps.isNotEmpty()) {
+                        updateStepUI()
+                    } else {
+                        binding.tvStepDescription.text = "Esta receta no tiene pasos registrados en la base de datos."
+                        binding.tvStepLabel.text = "No hay pasos"
+                    }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.e("RecetApp", "Error cargando datos modo cocina", e)
                 }
             }
         }
@@ -99,31 +108,26 @@ class CookingModeActivity : AppCompatActivity() {
         val step = steps[currentStepIndex]
         binding.tvStepLabel.text = "Paso ${currentStepIndex + 1} de ${steps.size}"
         binding.tvStepDescription.text = step.descripcion
-        binding.tvStepTime.text = if (step.tiempoSegundos != null) "${step.tiempoSegundos / 60} min" else ""
+        binding.tvStepTime.text = if (step.tiempoSegundos != null) "${step.tiempoSegundos / 60} min" else "Sin tiempo"
         
         binding.btnPrevious.isEnabled = currentStepIndex > 0
-        binding.btnNext.text = if (currentStepIndex == steps.size - 1) "¡Listo!" else "Siguiente"
+        binding.btnNext.text = if (currentStepIndex == steps.size - 1) "¡Terminar!" else "Siguiente"
 
-        // Update progress indicators (simplified)
         binding.progressContainer.removeAllViews()
         for (i in steps.indices) {
-            val view = View(this)
-            val params = LinearLayout.LayoutParams(0, 8, 1f)
-            params.setMargins(4, 0, 4, 0)
-            view.layoutParams = params
-            view.setBackgroundColor(
-                if (i <= currentStepIndex) getColor(R.color.orange_primary) else getColor(R.color.white_translucent)
-            )
-            binding.progressContainer.addView(view)
+            val v = View(this)
+            val p = LinearLayout.LayoutParams(0, 15, 1f)
+            p.setMargins(6, 0, 6, 0)
+            v.layoutParams = p
+            v.setBackgroundColor(if (i <= currentStepIndex) getColor(R.color.orange_primary) else getColor(R.color.white_translucent))
+            binding.progressContainer.addView(v)
         }
     }
 
     private fun updateTimerText() {
         val mins = seconds / 60
         val secs = seconds % 60
-        binding.tvTimer.text = java.util.Locale.getDefault().let { locale ->
-            String.format(locale, "%02d:%02d", mins, secs)
-        }
+        binding.tvTimer.text = String.format(java.util.Locale.getDefault(), "%02d:%02d", mins, secs)
     }
 
     override fun onDestroy() {
@@ -132,15 +136,24 @@ class CookingModeActivity : AppCompatActivity() {
     }
 
     inner class IngredientCheckAdapter(private val list: List<IngredienteReceta>) : RecyclerView.Adapter<IngredientCheckAdapter.ViewHolder>() {
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(CheckBox(parent.context))
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val item = list[position]
-            (holder.itemView as CheckBox).apply {
-                text = "${item.nombre} — ${item.cantidad ?: ""} ${item.unidad ?: ""}"
+        override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(
+            LayoutInflater.from(p.context).inflate(android.R.layout.simple_list_item_multiple_choice, p, false)
+        )
+        override fun onBindViewHolder(h: ViewHolder, pos: Int) {
+            val item = list[pos]
+            h.itemView.findViewById<TextView>(android.R.id.text1).apply {
+                text = "${item.nombre} (${item.cantidad ?: ""} ${item.unidad ?: ""})"
                 setTextColor(getColor(R.color.white))
+                textSize = 18f
             }
         }
         override fun getItemCount() = list.size
-        inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view)
+        inner class ViewHolder(v: View) : RecyclerView.ViewHolder(v)
+    }
+
+    private fun hideSystemUI() {
+        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
     }
 }

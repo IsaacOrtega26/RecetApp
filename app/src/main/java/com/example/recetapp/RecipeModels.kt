@@ -16,9 +16,9 @@ data class Usuario(
     @SerialName("total_seguidores") val totalSeguidores: Int = 0,
     @SerialName("total_seguidos") val totalSeguidos: Int = 0,
     @SerialName("total_recetas") val totalRecetas: Int = 0,
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null,
     val activo: Boolean = true,
     val contrasena: String? = null
-    // Nota: Omitimos fecha_creacion y fecha_actualizacion para que la BD use sus valores por defecto
 )
 
 @Serializable
@@ -29,15 +29,26 @@ data class Receta(
     @SerialName("nombre_normalizado") val nombreNormalizado: String? = null,
     val descripcion: String? = null,
     val categoria: String? = null,
-    val dificultad: String? = null, // baja, media, alta
+    val dificultad: String? = null, // 'baja', 'media', 'alta'
     @SerialName("tiempo_estimado") val tiempoEstimado: Int? = null,
-    val visibilidad: String = "publica", // publica, privada, seguidores
+    val visibilidad: String = "publica",
     @SerialName("total_likes") val totalLikes: Int = 0,
     @SerialName("total_comentarios") val totalComentarios: Int = 0,
     @SerialName("total_guardados") val totalGuardados: Int = 0,
     @SerialName("total_favoritos") val totalFavoritos: Int = 0,
-    @SerialName("fecha_creacion") val fechaCreacion: String? = null,
-    @SerialName("fecha_actualizacion") val fechaActualizacion: String? = null
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
+)
+
+@Serializable
+data class Publicacion(
+    @SerialName("publicacion_id") val id: String? = null,
+    @SerialName("autor_uid") val autorUid: String,
+    val descripcion: String? = null,
+    @SerialName("receta_id") val recetaId: String? = null,
+    val visibilidad: String = "publica",
+    @SerialName("total_likes") val totalLikes: Int = 0,
+    @SerialName("total_comentarios") val totalComentarios: Int = 0,
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
 )
 
 @Serializable
@@ -60,9 +71,19 @@ data class PasoReceta(
 )
 
 @Serializable
-data class ImagenReceta(
+data class Comentario(
+    @SerialName("comentario_id") val id: String? = null,
+    @SerialName("autor_uid") val autorUid: String,
+    @SerialName("recurso_id") val recursoId: String,
+    @SerialName("tipo_recurso") val tipoRecurso: String, // 'receta', 'publicacion'
+    val contenido: String,
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
+)
+
+@Serializable
+data class Like(
     val id: String? = null,
-    @SerialName("receta_id") val recetaId: String,
-    val url: String,
-    val orden: Int = 0
+    @SerialName("usuario_uid") val usuarioUid: String,
+    @SerialName("recurso_id") val recursoId: String,
+    @SerialName("tipo_recurso") val tipoRecurso: String
 )
