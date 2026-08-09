@@ -7,7 +7,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -72,7 +71,7 @@ class CreateRecipeActivity : AppCompatActivity() {
     private fun saveRecipeToSupabase() {
         val userId = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return
         if (recipeName.isBlank()) {
-            Toast.makeText(this, "El nombre es obligatorio", Toast.LENGTH_SHORT).show()
+            ToastManager.showToast(this, "El nombre es obligatorio")
             currentStep = 0
             renderStep()
             return
@@ -130,7 +129,7 @@ class CreateRecipeActivity : AppCompatActivity() {
                         }
                     }
                     
-                    Toast.makeText(this@CreateRecipeActivity, "¡Receta publicada!", Toast.LENGTH_SHORT).show()
+                    ToastManager.showToast(this@CreateRecipeActivity, "¡Receta publicada!")
                     finish()
                 }
             } catch (e: Exception) {
@@ -138,7 +137,7 @@ class CreateRecipeActivity : AppCompatActivity() {
                 binding.btnContinue.isEnabled = true
                 binding.btnContinue.text = "Publicar receta"
                 e.printStackTrace()
-                Toast.makeText(this@CreateRecipeActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                ToastManager.showToast(this@CreateRecipeActivity, "Error: ${e.message}", isLong = true)
             }
         }
     }

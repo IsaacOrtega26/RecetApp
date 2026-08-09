@@ -1,7 +1,6 @@
 package com.example.recetapp
 
 import android.os.Bundle
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -27,7 +26,7 @@ class SettingsActivity : AppCompatActivity() {
                 val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
                 uid?.let {
                     repository.updatePrivacidad(it, isChecked)
-                    Toast.makeText(this@SettingsActivity, "Privacidad actualizada", Toast.LENGTH_SHORT).show()
+                    ToastManager.showToast(this@SettingsActivity, "Privacidad actualizada")
                 }
             }
         }

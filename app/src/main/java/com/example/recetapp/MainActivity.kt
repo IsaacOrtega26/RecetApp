@@ -132,10 +132,20 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 // IMPORTANT: Use UID for lookup
-                val user = userId?.let { repository.getUsuarioByUid(it) } ?: 
-                           supabase.auth.currentSessionOrNull()?.user?.id?.let { repository.getUsuarioByUid(it) }
+                val sessionUser = supabase.auth.currentSessionOrNull()?.user
+                val currentId = userId ?: sessionUser?.id
+                Log.d("RecetApp", "Cargando perfil para UID: $currentId")
+                
+                var user = currentId?.let { repository.getUsuarioByUid(it) }
+                
+                // FALLBACK: Si no lo encuentra por UID, intentamos por Email (por si hubo conflicto de sincronización)
+                if (user == null && sessionUser?.email != null) {
+                    Log.d("RecetApp", "UID no encontrado, intentando fallback por email: ${sessionUser.email}")
+                    user = repository.getUsuarioByEmail(sessionUser.email!!)
+                }
 
                 if (user != null) {
+                    Log.d("RecetApp", "Usuario cargado: ${user.nombreUsuario}, Foto: ${user.fotoUrl}")
                     currentUser = user
                     val recipes = repository.getRecetasByAutor(user.uid ?: "")
 

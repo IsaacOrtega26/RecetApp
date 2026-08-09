@@ -7,20 +7,33 @@ import android.util.Patterns
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.auth.providers.builtin.IDToken
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 
 class LoginActivity : AppCompatActivity() {
+
+    private val supabase by lazy { SupabaseConfig.client }
+    private val repository by lazy { SupabaseRepository(supabase) }
+    private var isBusy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +61,10 @@ class LoginActivity : AppCompatActivity() {
             startActivity(Intent(this, ForgotPasswordActivity::class.java))
         }
 
+        findViewById<Button>(R.id.btnGoogleLogin).setOnClickListener {
+            signInWithGoogle()
+        }
+
         setupLogin()
     }
 
@@ -55,50 +72,158 @@ class LoginActivity : AppCompatActivity() {
         val etEmail = findViewById<EditText>(R.id.etEmail)
         val etPassword = findViewById<EditText>(R.id.etPassword)
         val btnLogin = findViewById<Button>(R.id.btnLoginSubmit)
-        val progressBar = findViewById<android.widget.ProgressBar>(R.id.progressBar)
+        val btnGoogle = findViewById<Button>(R.id.btnGoogleLogin)
+        val progressBar = findViewById<ProgressBar>(R.id.progressBar)
 
         btnLogin.setOnClickListener {
+            if (isBusy) return@setOnClickListener
             val email = etEmail.text.toString().trim()
             val password = etPassword.text.toString().trim()
 
             if (!validateForm(email, password, etEmail, etPassword)) return@setOnClickListener
 
-            setLoadingState(true, btnLogin, progressBar)
+            setLoadingState(isLoading = true, btnLogin, btnGoogle, progressBar)
 
             lifecycleScope.launch {
                 try {
+                    isBusy = true
                     Log.d("RecetApp", "Intentando iniciar sesión para: $email")
                     
-                    SupabaseConfig.client.auth.signInWith(Email) {
+                    supabase.auth.signInWith(Email) {
                         this.email = email
                         this.password = password
                     }
 
                     Log.d("RecetApp", "Sesión iniciada con éxito")
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@LoginActivity, "¡Bienvenido de nuevo!", Toast.LENGTH_SHORT).show()
+                        ToastManager.showToast(this@LoginActivity, "¡Bienvenido de nuevo!")
                         startActivity(Intent(this@LoginActivity, MainActivity::class.java))
                         finishAffinity()
                     }
                 } catch (e: Exception) {
                     Log.e("RecetApp", "Error de autenticación", e)
                     withContext(Dispatchers.Main) {
+                        isBusy = false
                         val errorMsg = when {
                             e.message?.contains("Invalid login credentials") == true -> "Correo o contraseña incorrectos"
                             e.message?.contains("Email not confirmed") == true -> "Debes confirmar tu correo"
                             else -> "Error: ${e.message}"
                         }
-                        Toast.makeText(this@LoginActivity, errorMsg, Toast.LENGTH_LONG).show()
-                        setLoadingState(false, btnLogin, progressBar)
+                        ToastManager.showToast(this@LoginActivity, errorMsg, true)
+                        setLoadingState(false, btnLogin, btnGoogle, progressBar)
                     }
                 }
             }
         }
     }
 
-    private fun setLoadingState(isLoading: Boolean, button: Button, progress: View) {
-        button.isEnabled = !isLoading
-        button.alpha = if (isLoading) 0.7f else 1.0f
+    private fun signInWithGoogle() {
+        if (isBusy) return
+        val btnLogin = findViewById<Button>(R.id.btnLoginSubmit)
+        val btnGoogle = findViewById<Button>(R.id.btnGoogleLogin)
+        val progressBar = findViewById<ProgressBar>(R.id.progressBar)
+
+        val credentialManager = CredentialManager.create(this)
+        val webClientId = "637493199596-gju7dpo8t5qfgv2252sotgc7a74873mu.apps.googleusercontent.com"
+
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId(webClientId)
+            .setAutoSelectEnabled(false)
+            .build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
+        setLoadingState(isLoading = true, btnLogin, btnGoogle, progressBar)
+
+        lifecycleScope.launch {
+            try {
+                isBusy = true
+                Log.d("RecetApp", "DEBUG: Iniciando flow con WebClientID: $webClientId")
+                Log.d("RecetApp", "DEBUG: PackageName: $packageName")
+                
+                val result = credentialManager.getCredential(this@LoginActivity, request)
+                val credential = result.credential
+                Log.d("RecetApp", "Credencial obtenida: ${credential.type}")
+
+                if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    val idToken = googleIdTokenCredential.idToken
+
+                    supabase.auth.signInWith(IDToken) {
+                        this.idToken = idToken
+                        provider = Google
+                    }
+
+                    // --- NUEVA LÓGICA: ASEGURAR PERFIL ---
+                    val user = supabase.auth.currentSessionOrNull()?.user
+                    val userId = user?.id
+                    if (userId != null) {
+                        val email = user.email ?: ""
+                        val metadata = user.userMetadata
+                        
+                        val name = metadata?.get("full_name")?.toString()?.replace("\"", "")
+                            ?: metadata?.get("name")?.toString()?.replace("\"", "")
+                            ?: ""
+                            
+                        val photoUrl = metadata?.get("avatar_url")?.toString()?.replace("\"", "")
+                            ?: metadata?.get("picture")?.toString()?.replace("\"", "")
+                        
+                        val handle = email.substringBefore("@").lowercase().replace(".", "_")
+                        
+                        // Buscamos si ya existe por email para evitar el conflicto de duplicados
+                        val existingByEmail = repository.getUsuarioByEmail(email)
+                        
+                        val usuarioSync = Usuario(
+                            uid = userId, // Actualizamos al nuevo UID de la sesión actual
+                            email = email,
+                            nombreUsuario = existingByEmail?.nombreUsuario ?: handle,
+                            nombreCompleto = if (existingByEmail?.nombreCompleto.isNullOrBlank()) name else existingByEmail?.nombreCompleto,
+                            fotoUrl = photoUrl ?: existingByEmail?.fotoUrl,
+                            rol = existingByEmail?.rol ?: "usuario",
+                            activo = true,
+                        )
+                        repository.upsertUsuario(usuarioSync)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        isBusy = false
+                        ToastManager.showToast(this@LoginActivity, "¡Bienvenido con Google!")
+                        kotlinx.coroutines.delay(100L)
+                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
+                        finishAffinity()
+                    }
+                }
+            } catch (e: Throwable) {
+                withContext(Dispatchers.Main) {
+                    isBusy = false
+                    val errorType = e.javaClass.simpleName
+                    val errorMsg = e.message ?: "Sin mensaje"
+                    
+                    Log.e("RecetApp", "FALLO TOTAL GOOGLE LOGIN: [$errorType]")
+                    Log.e("RecetApp", "MENSAJE: $errorMsg")
+                    
+                    val userFriendlyMsg = when {
+                        e is NoCredentialException -> "No se encontraron cuentas (asegúrate de tener una cuenta de Google activa en el emulador)"
+                        errorMsg.contains("cancelled", ignoreCase = true) -> null // Cancelado por usuario
+                        errorMsg.contains("Configuration not found", ignoreCase = true) -> "Configuración no encontrada en Google Cloud (revisa el SHA-1)"
+                        else -> "Error de conexión con Google: $errorType"
+                    }
+                    
+                    userFriendlyMsg?.let { ToastManager.showToast(this@LoginActivity, it, isLong = true) }
+                    setLoadingState(false, btnLogin, btnGoogle, progressBar)
+                }
+            }
+        }
+    }
+
+    private fun setLoadingState(isLoading: Boolean, primaryBtn: Button, secondaryBtn: Button, progress: View) {
+        primaryBtn.isEnabled = !isLoading
+        secondaryBtn.isEnabled = !isLoading
+        primaryBtn.alpha = if (isLoading) 0.7f else 1.0f
+        secondaryBtn.alpha = if (isLoading) 0.7f else 1.0f
         progress.visibility = if (isLoading) View.VISIBLE else View.GONE
     }
 

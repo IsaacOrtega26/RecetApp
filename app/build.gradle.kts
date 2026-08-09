@@ -51,6 +51,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("io.coil-kt:coil:2.6.0")
 
+    // Google Auth
+    implementation(libs.credman)
+    implementation(libs.credman.play)
+    implementation(libs.google.signin)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

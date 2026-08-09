@@ -6,7 +6,6 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
-import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -48,11 +47,11 @@ class ForgotPasswordActivity : AppCompatActivity() {
                     
                     SupabaseConfig.client.auth.resetPasswordForEmail(email)
                     
-                    Toast.makeText(this@ForgotPasswordActivity, "Enlace enviado. Revisa tu correo.", Toast.LENGTH_LONG).show()
+                    ToastManager.showToast(this@ForgotPasswordActivity, "Enlace enviado. Revisa tu correo.", isLong = true)
                     finish()
                 } catch (e: Exception) {
                     Log.e("RecetApp", "Error al enviar reset", e)
-                    Toast.makeText(this@ForgotPasswordActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    ToastManager.showToast(this@ForgotPasswordActivity, "Error: ${e.message}")
                 } finally {
                     btnSend.isEnabled = true
                     progress.visibility = View.GONE

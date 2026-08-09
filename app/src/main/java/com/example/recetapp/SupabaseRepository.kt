@@ -51,6 +51,27 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         supabase.from("usuarios").delete { filter { eq("uid_usuario", uid) } }
     }
 
+    suspend fun upsertUsuario(usuario: Usuario): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Intentamos por UID primero, si hay error de duplicado de email, Supabase lo manejará según onConflict
+            supabase.from("usuarios").upsert(usuario) {
+                onConflict = "uid_usuario"
+            }
+            true
+        } catch (e: Exception) {
+            // Si falla por UID (ej: conflicto de email), intentamos upsert por email
+            try {
+                supabase.from("usuarios").upsert(usuario) {
+                    onConflict = "email"
+                }
+                true
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                false
+            }
+        }
+    }
+
     suspend fun insertUsuario(usuario: Usuario): Boolean = withContext(Dispatchers.IO) {
         try {
             supabase.from("usuarios").insert(usuario)

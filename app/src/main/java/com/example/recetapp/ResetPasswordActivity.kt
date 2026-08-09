@@ -7,7 +7,6 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
-import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -60,12 +59,12 @@ class ResetPasswordActivity : AppCompatActivity() {
                     // Nota: Si se requiere actualizar en la tabla 'usuarios' manualmente, 
                     // se podría añadir aquí el repository.updateUsuario si el UID está disponible.
                     
-                    Toast.makeText(this@ResetPasswordActivity, "Contraseña cambiada con éxito", Toast.LENGTH_LONG).show()
+                    ToastManager.showToast(this@ResetPasswordActivity, "Contraseña cambiada con éxito", isLong = true)
                     startActivity(Intent(this@ResetPasswordActivity, MainActivity::class.java))
                     finish()
                 } catch (e: Exception) {
                     Log.e("RecetApp", "Error al resetear clave", e)
-                    Toast.makeText(this@ResetPasswordActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    ToastManager.showToast(this@ResetPasswordActivity, "Error: ${e.message}")
                 } finally {
                     btnReset.isEnabled = true
                     progress.visibility = View.GONE

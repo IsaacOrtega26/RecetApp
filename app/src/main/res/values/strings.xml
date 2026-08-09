@@ -16,5 +16,7 @@
     <string name="login_title">Bienvenido de nuevo</string>
     <string name="login_subtitle">Ingresa tus credenciales para continuar.</string>
     <string name="footer_register">¿No tienes cuenta? Regístrate</string>
+    <string name="btn_google">Continuar con Google</string>
+    <string name="or_separator">O</string>
     <string name="handle_placeholder">\@usuario</string>
 </resources>
