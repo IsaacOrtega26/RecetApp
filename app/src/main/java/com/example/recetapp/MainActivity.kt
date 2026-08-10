@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkSession() {
         val session = supabase.auth.currentSessionOrNull()
         if (session != null) {
+            currentUser = null // Limpiar rastro de sesión anterior
             setupMainShell()
         } else {
             showWelcome()
@@ -102,8 +103,19 @@ class MainActivity : AppCompatActivity() {
         val refreshFeed = {
             lifecycleScope.launch {
                 try {
-                    val recipes = repository.getAllRecetas().filter { it.visibilidad == "publica" }
-                    feedAdapter.updateRecipes(recipes)
+                    val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: ""
+                    val isFollowingTab = feedBinding.tabLayoutFeed.selectedTabPosition == 1
+                    
+                    val allRecipes = repository.getAllRecetas().filter { it.visibilidad == "publica" }
+                    
+                    val filtered = if (isFollowingTab) {
+                        // Filtrar solo los que sigue
+                        allRecipes.filter { repository.isFollowing(currentUid, it.autorUid) }
+                    } else {
+                        allRecipes
+                    }
+                    
+                    feedAdapter.updateRecipes(filtered)
                     feedBinding.swipeRefresh.isRefreshing = false
                 } catch (e: Exception) {
                     feedBinding.swipeRefresh.isRefreshing = false
@@ -111,18 +123,128 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        feedBinding.tabLayoutFeed.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?) { refreshFeed() }
+            override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+            override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+        })
+
         feedBinding.swipeRefresh.setOnRefreshListener { refreshFeed() }
         refreshFeed()
     }
 
     private fun showExplore() {
         mainBinding.contentFrame.removeAllViews()
-        ViewExploreBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
+        val exploreBinding = ViewExploreBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
+
+        val feedAdapter = RecipeFeedAdapter(emptyList())
+        exploreBinding.rvExplore.apply {
+            adapter = feedAdapter
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this@MainActivity)
+        }
+
+        exploreBinding.etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val query = s.toString().lowercase()
+                lifecycleScope.launch {
+                    val all = repository.getAllRecetas()
+                    val filtered = all.filter { 
+                        it.nombre.lowercase().contains(query) || 
+                        it.descripcion?.lowercase()?.contains(query) == true 
+                    }
+                    feedAdapter.updateRecipes(filtered)
+                }
+            }
+            override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+            override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+        })
+
+        lifecycleScope.launch {
+            val recipes = repository.getAllRecetas()
+            feedAdapter.updateRecipes(recipes)
+        }
     }
 
     private fun showNotifications() {
         mainBinding.contentFrame.removeAllViews()
-        ViewNotificationsBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
+        val notifBinding = ViewNotificationsBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
+
+        lifecycleScope.launch {
+            val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
+            val list = repository.getNotificaciones(currentUid)
+            notifBinding.rvNotifications.adapter = NotificationAdapter(list)
+        }
+    }
+
+    inner class NotificationAdapter(private val list: List<Notificacion>) : RecyclerView.Adapter<NotificationAdapter.ViewHolder>() {
+        override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemCommentBinding.inflate(layoutInflater, p, false)) // Reusamos diseño similar
+        override fun onBindViewHolder(h: ViewHolder, pos: Int) {
+            val n = list[pos]
+            val text = when(n.tipo) {
+                "like" -> "le dio me gusta a tu receta"
+                "seguidor" -> "empezó a seguirte"
+                "comentario" -> "comentó tu receta"
+                else -> "interactuó contigo"
+            }
+            h.binding.tvContent.text = text
+            lifecycleScope.launch {
+                val author = repository.getUsuarioByUid(n.actorUid)
+                h.binding.tvAuthor.text = author?.nombreUsuario ?: "Alguien"
+                author?.fotoUrl?.let { h.binding.ivAvatar.load(it) }
+            }
+        }
+        override fun getItemCount() = list.size
+        inner class ViewHolder(val binding: ItemCommentBinding) : RecyclerView.ViewHolder(binding.root)
+    }
+
+    private fun showComments(recetaId: String) {
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val b = DialogCommentsBinding.inflate(layoutInflater)
+        dialog.setContentView(b.root)
+
+        val loadComments = {
+            lifecycleScope.launch {
+                val comments = repository.getComentarios(recetaId)
+                b.rvComments.adapter = CommentAdapter(comments)
+            }
+        }
+
+        b.btnSendComment.setOnClickListener {
+            val content = b.etComment.text.toString().trim()
+            if (content.isNotEmpty()) {
+                val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
+                lifecycleScope.launch {
+                    val success = repository.insertComentario(Comentario(
+                        autorUid = uid,
+                        recursoId = recetaId,
+                        tipoRecurso = "receta",
+                        contenido = content
+                    ))
+                    if (success) {
+                        b.etComment.setText("")
+                        loadComments()
+                    }
+                }
+            }
+        }
+
+        loadComments()
+        dialog.show()
+    }
+
+    inner class CommentAdapter(private val list: List<Comentario>) : RecyclerView.Adapter<CommentAdapter.ViewHolder>() {
+        override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemCommentBinding.inflate(layoutInflater, p, false))
+        override fun onBindViewHolder(h: ViewHolder, pos: Int) {
+            val item = list[pos]
+            h.binding.tvContent.text = item.contenido
+            lifecycleScope.launch {
+                val author = repository.getUsuarioByUid(item.autorUid)
+                h.binding.tvAuthor.text = author?.nombreUsuario ?: "Anónimo"
+                author?.fotoUrl?.let { h.binding.ivAvatar.load(it) }
+            }
+        }
+        override fun getItemCount() = list.size
+        inner class ViewHolder(val binding: ItemCommentBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
     private fun showProfile(userId: String? = null) {
@@ -160,10 +282,12 @@ class MainActivity : AppCompatActivity() {
                     profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
                     
                     // ADMIN PANEL VISIBILITY
-                    if (user.rol == "administrador") {
+                    Log.d("RecetApp", "Rol del usuario: ${user.rol}")
+                    if (user.rol.lowercase() == "administrador" || user.rol.lowercase() == "admin") {
                         profileBinding.btnAdminPanel.visibility = View.VISIBLE
                         profileBinding.btnAdminPanel.setOnClickListener {
-                            Toast.makeText(this@MainActivity, "Abriendo panel de administración...", Toast.LENGTH_SHORT).show()
+                            val intent = Intent(this@MainActivity, AdminPanelActivity::class.java)
+                            startActivity(intent)
                         }
                     }
                 }
@@ -225,7 +349,10 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 supabase.auth.signOut()
-                startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                currentUser = null
+                val intent = Intent(this@MainActivity, LoginActivity::class.java)
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                startActivity(intent)
                 finish()
             } catch (e: Exception) { e.printStackTrace() }
         }
@@ -264,25 +391,67 @@ class MainActivity : AppCompatActivity() {
 
             lifecycleScope.launch {
                 val images = repository.getImagenesReceta(recipe.id ?: "")
+                Log.d("RecetApp", "Feed - Receta: ${recipe.nombre}, Imágenes encontradas: ${images.size}")
                 if (images.isNotEmpty()) {
-                    holder.binding.ivRecipe.load(images[0])
+                    Log.d("RecetApp", "Feed - Cargando imagen: ${images[0]}")
+                    holder.binding.ivRecipe.load(images[0]) {
+                        crossfade(true)
+                        placeholder(R.drawable.ic_recipe_placeholder)
+                        error(R.drawable.ic_recipe_placeholder)
+                    }
                 } else {
                     holder.binding.ivRecipe.setImageResource(R.drawable.ic_recipe_placeholder)
                 }
             }
 
-            // RED SOCIAL - LIKES
+            // RED SOCIAL - LIKES (CON ACTUALIZACIÓN OPTIMISTA Y VERIFICACIÓN)
             holder.binding.ivLike.setOnClickListener {
                 val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
                 lifecycleScope.launch {
                     try {
+                        // 1. Efecto visual inmediato (Optimista)
+                        // IMPORTANTE: Basamos la decisión en el color actual del icono
+                        val isCurrentlyLiked = holder.binding.ivLike.imageTintList == android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+                        val currentLikes = holder.binding.tvLikesCount.text.toString().toIntOrNull() ?: 0
+                        
+                        if (!isCurrentlyLiked) {
+                            holder.binding.tvLikesCount.text = (currentLikes + 1).toString()
+                            holder.binding.ivLike.setImageResource(R.drawable.ic_heart)
+                            holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+                        } else {
+                            holder.binding.tvLikesCount.text = (if (currentLikes > 0) currentLikes - 1 else 0).toString()
+                            holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
+                        }
+
+                        // 2. Operación real en BD
+                        Log.d("RecetApp", "Interacción social enviada (Like=$isCurrentlyLiked)...")
                         repository.toggleLike(currentUid, recipe.id ?: "", "receta")
+                        
+                        // 3. Confirmación final (Sincronización real)
+                        // Consultamos la receta de nuevo para obtener el número exacto del servidor
                         val updated = repository.getRecetaById(recipe.id ?: "")
                         updated?.let {
                             holder.binding.tvLikesCount.text = it.totalLikes.toString()
+                            Log.d("RecetApp", "Likes actualizados desde servidor: ${it.totalLikes}")
                         }
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) {
+                        Log.e("RecetApp", "Fallo al procesar Like: ${e.message}")
+                        Toast.makeText(this@MainActivity, "Error de sincronización", Toast.LENGTH_SHORT).show()
+                    }
                 }
+            }
+
+            holder.binding.ivComment.setOnClickListener {
+                showComments(recipe.id ?: "")
+            }
+
+            holder.binding.ivShare.setOnClickListener {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Mira esta receta en RecetApp")
+                    putExtra(Intent.EXTRA_TEXT, "¡Mira la receta de ${recipe.nombre} en RecetApp! \n\n${recipe.descripcion}")
+                }
+                startActivity(Intent.createChooser(shareIntent, "Compartir receta"))
             }
 
             holder.itemView.setOnClickListener {

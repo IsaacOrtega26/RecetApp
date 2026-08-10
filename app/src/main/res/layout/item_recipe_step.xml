@@ -23,8 +23,8 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
         android:hint="Describe este paso..."
-        android:textColor="@color/black"
-        android:textColorHint="#555555"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
         android:textSize="16sp"
         android:inputType="textMultiLine" />
 
