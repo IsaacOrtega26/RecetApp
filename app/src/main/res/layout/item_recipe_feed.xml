@@ -47,7 +47,7 @@
             android:ellipsize="end"
             android:maxLines="2"
             android:text="Una breve descripción..."
-            android:textColor="#333333"
+            android:textColor="@color/text_primary"
             android:textSize="14sp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -111,6 +111,18 @@
                 android:text="0"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <ImageView
+                android:id="@+id/ivShare"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@android:drawable/ic_menu_share"
+                app:tint="@color/text_primary" />
 
         </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>

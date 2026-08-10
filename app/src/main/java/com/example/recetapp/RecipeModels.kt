@@ -87,3 +87,15 @@ data class Like(
     @SerialName("recurso_id") val recursoId: String,
     @SerialName("tipo_recurso") val tipoRecurso: String
 )
+
+@Serializable
+data class Notificacion(
+    @SerialName("notificacion_id") val id: String? = null,
+    @SerialName("destinatario_uid") val destinatarioUid: String,
+    @SerialName("actor_uid") val actorUid: String,
+    val tipo: String, // 'like', 'comentario', 'seguidor', 'mensaje', 'solicitud'
+    @SerialName("objeto_id") val objetoId: String? = null,
+    val mensaje: String? = null,
+    val leida: Boolean = false,
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
+)

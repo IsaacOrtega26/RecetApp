@@ -2,6 +2,7 @@ package com.example.recetapp
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -32,6 +33,40 @@ class RecipeDetailActivity : AppCompatActivity() {
 
         recipeId = intent.getStringExtra("RECIPE_ID")
         binding.toolbar.setNavigationOnClickListener { finish() }
+        
+        binding.toolbar.setOnMenuItemClickListener { item ->
+            when(item.itemId) {
+                R.id.action_share -> {
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, "¡Mira esta receta: ${currentRecipe?.nombre}!\n\n${currentRecipe?.descripcion}")
+                    }
+                    startActivity(Intent.createChooser(shareIntent, "Compartir"))
+                    true
+                }
+                R.id.action_report -> {
+                    val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return@setOnMenuItemClickListener false
+                    lifecycleScope.launch {
+                        val success = repository.reportarRecurso(uid, recipeId ?: "", "receta", "Contenido inapropiado")
+                        if (success) Toast.makeText(this@RecipeDetailActivity, "Reporte enviado", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+                R.id.action_block -> {
+                    val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return@setOnMenuItemClickListener false
+                    val authorUid = currentRecipe?.autorUid ?: return@setOnMenuItemClickListener false
+                    lifecycleScope.launch {
+                        val success = repository.bloquearUsuario(uid, authorUid)
+                        if (success) {
+                            Toast.makeText(this@RecipeDetailActivity, "Usuario bloqueado", Toast.LENGTH_SHORT).show()
+                            finish()
+                        }
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
 
         binding.btnStartCooking.setOnClickListener {
             val intent = Intent(this, CookingModeActivity::class.java)
@@ -40,6 +75,33 @@ class RecipeDetailActivity : AppCompatActivity() {
         }
 
         binding.btnFollow.setOnClickListener { toggleFollow() }
+
+        binding.tvLikes.setOnClickListener {
+            val currentUid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
+            lifecycleScope.launch {
+                try {
+                    repository.toggleLike(currentUid, recipeId ?: "", "receta")
+                    val updated = repository.getRecetaById(recipeId ?: "")
+                    updated?.let {
+                        binding.tvLikes.text = it.totalLikes.toString()
+                    }
+                } catch (e: Exception) {
+                    Log.e("RecetApp", "Error al dar like", e)
+                }
+            }
+        }
+
+        binding.ivSave.setOnClickListener {
+            val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
+            lifecycleScope.launch {
+                try {
+                    repository.toggleSave(uid, recipeId ?: "", "receta")
+                    updateSaveUI()
+                } catch (e: Exception) {
+                    Log.e("RecetApp", "Error al guardar", e)
+                }
+            }
+        }
 
         setupTabs()
         loadRecipeData()
@@ -76,10 +138,19 @@ class RecipeDetailActivity : AppCompatActivity() {
                         user.fotoUrl?.let { binding.ivAuthorAvatar.load(it) }
                         checkFollowStatus(user.uid ?: "")
                     }
-
+                    
+                    updateSaveUI()
                     updateList(0)
                 } catch (e: Exception) { e.printStackTrace() }
             }
+        }
+    }
+
+    private fun updateSaveUI() {
+        val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return
+        lifecycleScope.launch {
+            val saved = repository.isSaved(uid, recipeId ?: "")
+            binding.ivSave.setImageResource(if (saved) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off)
         }
     }
 
@@ -118,12 +189,18 @@ class RecipeDetailActivity : AppCompatActivity() {
     private fun updateList(position: Int) {
         recipeId?.let { id ->
             lifecycleScope.launch {
-                if (position == 0) {
-                    val ingredients = repository.getIngredientes(id)
-                    binding.rvContent.adapter = IngredientAdapter(ingredients)
-                } else {
-                    val steps = repository.getPasos(id)
-                    binding.rvContent.adapter = StepAdapter(steps)
+                try {
+                    if (position == 0) {
+                        val ingredients = repository.getIngredientes(id)
+                        Log.d("RecetApp", "Detalle - Ingredientes: ${ingredients.size}")
+                        binding.rvContent.adapter = IngredientAdapter(ingredients)
+                    } else {
+                        val steps = repository.getPasos(id)
+                        Log.d("RecetApp", "Detalle - Pasos: ${steps.size}")
+                        binding.rvContent.adapter = StepAdapter(steps)
+                    }
+                } catch (e: Exception) {
+                    Log.e("RecetApp", "Error al cargar lista en detalle", e)
                 }
             }
         }

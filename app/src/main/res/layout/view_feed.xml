@@ -23,6 +23,18 @@
             android:textSize="24sp"
             android:textStyle="bold" />
 
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/tabLayoutFeed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:color/transparent"
+            app:tabIndicatorColor="@color/orange_primary"
+            app:tabSelectedTextColor="@color/text_primary"
+            app:tabTextColor="@color/text_primary">
+            <com.google.android.material.tabs.TabItem android:text="Para ti" />
+            <com.google.android.material.tabs.TabItem android:text="Siguiendo" />
+        </com.google.android.material.tabs.TabLayout>
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvFeed"
             android:layout_width="match_parent"

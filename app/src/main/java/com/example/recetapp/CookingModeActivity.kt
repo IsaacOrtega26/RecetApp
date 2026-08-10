@@ -7,8 +7,8 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import android.widget.LinearLayout
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
@@ -88,6 +88,10 @@ class CookingModeActivity : AppCompatActivity() {
                     
                     Log.d("RecetApp", "Modo Cocina - Pasos: ${steps.size}, Ingredientes: ${ingredients.size}")
 
+                    if (steps.isEmpty()) {
+                        Toast.makeText(this@CookingModeActivity, "No se encontraron pasos para esta receta", Toast.LENGTH_SHORT).show()
+                    }
+
                     binding.rvIngredients.adapter = IngredientCheckAdapter(ingredients)
                     if (steps.isNotEmpty()) {
                         updateStepUI()
@@ -136,17 +140,53 @@ class CookingModeActivity : AppCompatActivity() {
     }
 
     inner class IngredientCheckAdapter(private val list: List<IngredienteReceta>) : RecyclerView.Adapter<IngredientCheckAdapter.ViewHolder>() {
+        
+        // Mapa para persistir el estado de los checkboxes mientras la actividad esté viva
+        private val checkedStates = mutableMapOf<Int, Boolean>()
+
         override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(
             LayoutInflater.from(p.context).inflate(android.R.layout.simple_list_item_multiple_choice, p, false)
         )
+
         override fun onBindViewHolder(h: ViewHolder, pos: Int) {
             val item = list[pos]
-            h.itemView.findViewById<TextView>(android.R.id.text1).apply {
+            val textView = h.itemView.findViewById<android.widget.CheckedTextView>(android.R.id.text1)
+            
+            textView.apply {
                 text = "${item.nombre} (${item.cantidad ?: ""} ${item.unidad ?: ""})"
-                setTextColor(getColor(R.color.white))
+                setTextColor(android.graphics.Color.WHITE)
                 textSize = 18f
+                
+                // Restaurar estado
+                isChecked = checkedStates[pos] ?: false
+                
+                // Configurar el click para alternar el checkbox
+                setOnClickListener {
+                    val newState = !isChecked
+                    isChecked = newState
+                    checkedStates[pos] = newState
+                    
+                    // Feedback visual opcional
+                    if (newState) {
+                        alpha = 0.5f
+                        paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                    } else {
+                        alpha = 1.0f
+                        paintFlags = paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                    }
+                }
+
+                // Aplicar estilo según el estado cargado
+                if (isChecked) {
+                    alpha = 0.5f
+                    paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                } else {
+                    alpha = 1.0f
+                    paintFlags = paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                }
             }
         }
+
         override fun getItemCount() = list.size
         inner class ViewHolder(v: View) : RecyclerView.ViewHolder(v)
     }

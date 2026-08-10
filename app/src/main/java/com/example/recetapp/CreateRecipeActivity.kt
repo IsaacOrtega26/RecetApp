@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -119,12 +120,16 @@ class CreateRecipeActivity : AppCompatActivity() {
 
                     // 4. Upload Image
                     selectedImageUri?.let { uri ->
+                        Log.d("RecetApp", "Subiendo imagen para receta $recetaId")
                         val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         if (bytes != null) {
                             val fileName = "recipe_${recetaId}.jpg"
                             val imageUrl = repository.uploadImage("recipes", fileName, bytes)
                             if (imageUrl != null) {
+                                Log.d("RecetApp", "Imagen subida: $imageUrl")
                                 repository.insertImagenReceta(recetaId, imageUrl)
+                            } else {
+                                Log.e("RecetApp", "Error al subir imagen al Storage")
                             }
                         }
                     }
@@ -206,8 +211,14 @@ class CreateRecipeActivity : AppCompatActivity() {
 
     private fun renderStepVisibility(inflater: LayoutInflater) {
         val b = StepVisibilityBinding.inflate(inflater, binding.fragmentContainer, true)
+        
+        // Cargar vista previa si ya existe
+        selectedImageUri?.let { 
+            b.ivRecipePreview.setImageURI(it)
+            b.ivRecipePreview.visibility = View.VISIBLE
+        }
+        
         b.cardRecipeImage.setOnClickListener { pickImage.launch("image/*") }
-        selectedImageUri?.let { b.ivRecipePreview.setImageURI(it) }
         
         b.rgVisibility.setOnCheckedChangeListener { _, id ->
             recipeVisibility = when(id) {
