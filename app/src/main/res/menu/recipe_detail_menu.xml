@@ -2,16 +2,28 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/action_edit"
+        android:icon="@android:drawable/ic_menu_edit"
+        android:title="Editar"
+        android:visible="false"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_delete"
+        android:icon="@android:drawable/ic_menu_delete"
+        android:title="Eliminar"
+        android:visible="false"
+        app:showAsAction="ifRoom" />
+    <item
         android:id="@+id/action_share"
         android:icon="@android:drawable/ic_menu_share"
         android:title="Compartir"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/action_report"
         android:title="Reportar"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_block"
-        android:title="Bloquear usuario"
+        android:title="Bloquear autor"
         app:showAsAction="never" />
 </menu>

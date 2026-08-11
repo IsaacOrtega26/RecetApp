@@ -99,3 +99,22 @@ data class Notificacion(
     val leida: Boolean = false,
     @SerialName("fecha_creacion") val fechaCreacion: String? = null
 )
+
+@Serializable
+data class SolicitudSeguimiento(
+    val id: String? = null,
+    @SerialName("solicitante_uid") val solicitanteUid: String,
+    @SerialName("destino_uid") val destinoUid: String,
+    val estado: String = "pendiente", // 'pendiente', 'aceptada', 'rechazada'
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
+)
+
+@Serializable
+data class Mensaje(
+    val id: String? = null,
+    @SerialName("emisor_uid") val emisorUid: String,
+    @SerialName("receptor_uid") val receptorUid: String,
+    val contenido: String,
+    val leido: Boolean = false,
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
+)

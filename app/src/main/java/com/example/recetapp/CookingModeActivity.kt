@@ -38,14 +38,20 @@ class CookingModeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemUI()
         binding = ActivityCookingModeBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         recipeId = intent.getStringExtra("RECIPE_ID")
         Log.d("RecetApp", "Modo Cocina - Cargando ID: $recipeId")
 
-        binding.toolbar.setNavigationOnClickListener { finish() }
+        binding.toolbar.setNavigationOnClickListener {
+            if (currentStepIndex > 0) {
+                currentStepIndex--
+                updateStepUI()
+            } else {
+                finish()
+            }
+        }
 
         binding.btnPlayPause.setOnClickListener {
             running = !running
@@ -191,9 +197,4 @@ class CookingModeActivity : AppCompatActivity() {
         inner class ViewHolder(v: View) : RecyclerView.ViewHolder(v)
     }
 
-    private fun hideSystemUI() {
-        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-    }
 }

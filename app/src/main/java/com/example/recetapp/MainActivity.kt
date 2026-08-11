@@ -17,6 +17,8 @@ import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
 import coil.load
 import java.util.Locale
+import androidx.activity.OnBackPressedCallback
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -25,6 +27,7 @@ class MainActivity : AppCompatActivity() {
     private var currentUser: Usuario? = null
 
     private lateinit var mainBinding: ActivityMainBinding
+    private var currentViewState = "FEED" // "FEED", "EXPLORE", "NOTIF", "PROFILE", "OTHER_PROFILE", "EDIT_PROFILE", "CHATS"
 
     private val pickProfileImage = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
         uri?.let { updateProfilePreview(it) }
@@ -38,15 +41,24 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemUI()
         checkSession()
+        setupBackNavigation()
     }
 
-    private fun hideSystemUI() {
-        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+    private fun setupBackNavigation() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when (currentViewState) {
+                    "OTHER_PROFILE" -> showExplore()
+                    "CHATS" -> showFeed()
+                    "EDIT_PROFILE" -> showProfile(supabase.auth.currentSessionOrNull()?.user?.id)
+                    "FEED" -> finish()
+                    else -> showFeed()
+                }
+            }
+        })
     }
+
 
     private fun checkSession() {
         val session = supabase.auth.currentSessionOrNull()
@@ -81,7 +93,18 @@ class MainActivity : AppCompatActivity() {
         try {
             mainBinding.bottomNavigation?.setOnItemSelectedListener(navListener)
             mainBinding.fabCreate?.setOnClickListener {
-                startActivity(Intent(this, CreateRecipeActivity::class.java))
+                // Selector entre Receta y Publicación
+                val options = arrayOf("Nueva Receta", "Nueva Publicación")
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("¿Qué quieres crear?")
+                    .setItems(options) { _, which ->
+                        if (which == 0) {
+                            startActivity(Intent(this, CreateRecipeActivity::class.java))
+                        } else {
+                            startActivity(Intent(this, CreatePostActivity::class.java))
+                        }
+                    }
+                    .show()
             }
         } catch (e: Exception) {
             Log.e("RecetApp", "Error binding navigation", e)
@@ -91,6 +114,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showFeed() {
+        currentViewState = "FEED"
         mainBinding.contentFrame.removeAllViews()
         val feedBinding = ViewFeedBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
 
@@ -107,15 +131,23 @@ class MainActivity : AppCompatActivity() {
                     val isFollowingTab = feedBinding.tabLayoutFeed.selectedTabPosition == 1
                     
                     val allRecipes = repository.getAllRecetas().filter { it.visibilidad == "publica" }
+                    val allPosts = repository.getFeedPublicaciones().filter { it.visibilidad == "publica" }
                     
-                    val filtered = if (isFollowingTab) {
-                        // Filtrar solo los que sigue
-                        allRecipes.filter { repository.isFollowing(currentUid, it.autorUid) }
-                    } else {
-                        allRecipes
+                    // Combinamos ambos contenidos
+                    val combined: List<Any> = (allRecipes + allPosts).sortedByDescending { 
+                        if (it is Receta) it.fechaCreacion else (it as Publicacion).fechaCreacion 
                     }
                     
-                    feedAdapter.updateRecipes(filtered)
+                    val filtered = if (isFollowingTab) {
+                        combined.filter { 
+                            val autorId = if (it is Receta) it.autorUid else (it as Publicacion).autorUid
+                            repository.isFollowing(currentUid, autorId) 
+                        }
+                    } else {
+                        combined
+                    }
+                    
+                    feedAdapter.updateItems(filtered)
                     feedBinding.swipeRefresh.isRefreshing = false
                 } catch (e: Exception) {
                     feedBinding.swipeRefresh.isRefreshing = false
@@ -131,28 +163,67 @@ class MainActivity : AppCompatActivity() {
 
         feedBinding.swipeRefresh.setOnRefreshListener { refreshFeed() }
         refreshFeed()
+
+        feedBinding.ivChat.setOnClickListener { showChats() }
+    }
+
+    private fun showChats() {
+        startActivity(Intent(this, MessagesActivity::class.java))
     }
 
     private fun showExplore() {
+        currentViewState = "EXPLORE"
         mainBinding.contentFrame.removeAllViews()
         val exploreBinding = ViewExploreBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
 
-        val feedAdapter = RecipeFeedAdapter(emptyList())
+        exploreBinding.btnBackFromExplore?.setOnClickListener { showFeed() }
+
+        val recipeAdapter = RecipeFeedAdapter(emptyList())
+        val userAdapter = UserSearchAdapter(emptyList())
+
         exploreBinding.rvExplore.apply {
-            adapter = feedAdapter
+            adapter = recipeAdapter
             layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this@MainActivity)
         }
+
+        exploreBinding.tabExplore.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
+                if (tab?.position == 0) {
+                    exploreBinding.rvExplore.adapter = recipeAdapter
+                    exploreBinding.etSearch.hint = "Buscar recetas..."
+                } else {
+                    exploreBinding.rvExplore.adapter = userAdapter
+                    exploreBinding.etSearch.hint = "Buscar personas..."
+                }
+                triggerSearch(exploreBinding.etSearch.text.toString())
+            }
+            override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+            override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+
+            private fun triggerSearch(query: String) {
+                lifecycleScope.launch {
+                    if (exploreBinding.tabExplore.selectedTabPosition == 0) {
+                        val results = repository.searchRecetas(query)
+                        recipeAdapter.updateRecipes(results)
+                    } else {
+                        val results = repository.searchUsuarios(query)
+                        userAdapter.updateUsers(results)
+                    }
+                }
+            }
+        })
 
         exploreBinding.etSearch.addTextChangedListener(object : android.text.TextWatcher {
             override fun afterTextChanged(s: android.text.Editable?) {
                 val query = s.toString().lowercase()
                 lifecycleScope.launch {
-                    val all = repository.getAllRecetas()
-                    val filtered = all.filter { 
-                        it.nombre.lowercase().contains(query) || 
-                        it.descripcion?.lowercase()?.contains(query) == true 
+                    if (exploreBinding.tabExplore.selectedTabPosition == 0) {
+                        val results = repository.searchRecetas(query)
+                        recipeAdapter.updateRecipes(results)
+                    } else {
+                        val results = repository.searchUsuarios(query)
+                        userAdapter.updateUsers(results)
                     }
-                    feedAdapter.updateRecipes(filtered)
                 }
             }
             override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
@@ -161,13 +232,33 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val recipes = repository.getAllRecetas()
-            feedAdapter.updateRecipes(recipes)
+            recipeAdapter.updateRecipes(recipes)
         }
     }
 
+    inner class UserSearchAdapter(private var users: List<Usuario>) : RecyclerView.Adapter<UserSearchAdapter.ViewHolder>() {
+        fun updateUsers(newUsers: List<Usuario>) {
+            users = newUsers
+            notifyDataSetChanged()
+        }
+        override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemUserSearchBinding.inflate(layoutInflater, p, false))
+        override fun onBindViewHolder(h: ViewHolder, pos: Int) {
+            val user = users[pos]
+            h.binding.tvName.text = user.nombreCompleto ?: user.nombreUsuario
+            h.binding.tvHandle.text = "@${user.nombreUsuario}"
+            user.fotoUrl?.let { h.binding.ivAvatar.load(it) }
+            h.itemView.setOnClickListener { showProfile(user.uid) }
+        }
+        override fun getItemCount() = users.size
+        inner class ViewHolder(val binding: ItemUserSearchBinding) : RecyclerView.ViewHolder(binding.root)
+    }
+
     private fun showNotifications() {
+        currentViewState = "NOTIF"
         mainBinding.contentFrame.removeAllViews()
         val notifBinding = ViewNotificationsBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
+
+        notifBinding.btnBackFromNotif.setOnClickListener { showFeed() }
 
         lifecycleScope.launch {
             val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
@@ -184,9 +275,17 @@ class MainActivity : AppCompatActivity() {
                 "like" -> "le dio me gusta a tu receta"
                 "seguidor" -> "empezó a seguirte"
                 "comentario" -> "comentó tu receta"
+                "solicitud" -> "quiere seguirte"
                 else -> "interactuó contigo"
             }
             h.binding.tvContent.text = text
+            h.itemView.setOnClickListener {
+                if (n.tipo == "mensaje") {
+                    val intent = Intent(this@MainActivity, ChatActivity::class.java)
+                    intent.putExtra("OTHER_USER_ID", n.actorUid)
+                    startActivity(intent)
+                }
+            }
             lifecycleScope.launch {
                 val author = repository.getUsuarioByUid(n.actorUid)
                 h.binding.tvAuthor.text = author?.nombreUsuario ?: "Alguien"
@@ -197,15 +296,17 @@ class MainActivity : AppCompatActivity() {
         inner class ViewHolder(val binding: ItemCommentBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
-    private fun showComments(recetaId: String) {
+    private fun showComments(recetaId: String, tipo: String = "receta") {
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val b = DialogCommentsBinding.inflate(layoutInflater)
         dialog.setContentView(b.root)
 
-        val loadComments = {
+        b.btnCloseComments.setOnClickListener { dialog.dismiss() }
+
+        fun loadComments() {
             lifecycleScope.launch {
                 val comments = repository.getComentarios(recetaId)
-                b.rvComments.adapter = CommentAdapter(comments)
+                b.rvComments.adapter = CommentAdapter(comments) { loadComments() }
             }
         }
 
@@ -213,16 +314,26 @@ class MainActivity : AppCompatActivity() {
             val content = b.etComment.text.toString().trim()
             if (content.isNotEmpty()) {
                 val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
+                b.btnSendComment.isEnabled = false
                 lifecycleScope.launch {
-                    val success = repository.insertComentario(Comentario(
-                        autorUid = uid,
-                        recursoId = recetaId,
-                        tipoRecurso = "receta",
-                        contenido = content
-                    ))
-                    if (success) {
-                        b.etComment.setText("")
-                        loadComments()
+                    try {
+                        val success = repository.insertComentario(Comentario(
+                            autorUid = uid,
+                            recursoId = recetaId,
+                            tipoRecurso = tipo,
+                            contenido = content
+                        ))
+                        if (success) {
+                            b.etComment.setText("")
+                            loadComments()
+                            Toast.makeText(this@MainActivity, "Comentario enviado", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this@MainActivity, "Error al enviar. Intenta de nuevo.", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Fallo de conexión", Toast.LENGTH_SHORT).show()
+                    } finally {
+                        b.btnSendComment.isEnabled = true
                     }
                 }
             }
@@ -232,11 +343,43 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    inner class CommentAdapter(private val list: List<Comentario>) : RecyclerView.Adapter<CommentAdapter.ViewHolder>() {
+    inner class CommentAdapter(
+        private val list: List<Comentario>,
+        private val onCommentDeleted: () -> Unit
+    ) : RecyclerView.Adapter<CommentAdapter.ViewHolder>() {
         override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemCommentBinding.inflate(layoutInflater, p, false))
         override fun onBindViewHolder(h: ViewHolder, pos: Int) {
             val item = list[pos]
             h.binding.tvContent.text = item.contenido
+
+            val currentUid = supabase.auth.currentSessionOrNull()?.user?.id
+            if (item.autorUid == currentUid) {
+                h.binding.btnDeleteComment.visibility = View.VISIBLE
+                h.binding.btnDeleteComment.setOnClickListener {
+                    android.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Eliminar comentario")
+                        .setMessage("¿Deseas eliminar este comentario?")
+                        .setPositiveButton("Eliminar") { _, _ ->
+                            val comentarioId = item.id
+                            if (comentarioId != null && currentUid != null) {
+                                lifecycleScope.launch {
+                                    val success = repository.deleteComentario(comentarioId, currentUid)
+                                    if (success) {
+                                        onCommentDeleted()
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "Error al eliminar comentario", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                        .setNegativeButton("Cancelar", null)
+                        .show()
+                }
+            } else {
+                h.binding.btnDeleteComment.visibility = View.GONE
+                h.binding.btnDeleteComment.setOnClickListener(null)
+            }
+
             lifecycleScope.launch {
                 val author = repository.getUsuarioByUid(item.autorUid)
                 h.binding.tvAuthor.text = author?.nombreUsuario ?: "Anónimo"
@@ -248,8 +391,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showProfile(userId: String? = null) {
+        val sessionUser = supabase.auth.currentSessionOrNull()?.user
+        val isOwnProfile = userId == null || userId == sessionUser?.id
+        currentViewState = if (isOwnProfile) "PROFILE" else "OTHER_PROFILE"
+
         mainBinding.contentFrame.removeAllViews()
         val profileBinding = FragmentProfileBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
+
+        profileBinding.toolbar.navigationIcon = ContextCompat.getDrawable(this, R.drawable.ic_arrow_back)
+        profileBinding.toolbar.setNavigationIconTint(getColor(R.color.text_primary))
+        profileBinding.toolbar.setNavigationOnClickListener { 
+            if (isOwnProfile) showFeed() else showExplore() 
+        }
+        
+        if (isOwnProfile) {
+            profileBinding.btnSettings.visibility = View.VISIBLE
+            profileBinding.btnLogout.visibility = View.VISIBLE
+            profileBinding.btnEditProfile.visibility = View.VISIBLE
+            profileBinding.btnFollowProfile.visibility = View.GONE
+            profileBinding.btnSendMessage.visibility = View.GONE
+            profileBinding.btnPrivacy.visibility = View.VISIBLE
+        } else {
+            profileBinding.btnSettings.visibility = View.GONE
+            profileBinding.btnLogout.visibility = View.GONE
+            profileBinding.btnEditProfile.visibility = View.GONE
+            profileBinding.btnFollowProfile.visibility = View.VISIBLE
+            profileBinding.btnSendMessage.visibility = View.VISIBLE
+            profileBinding.btnPrivacy.visibility = View.GONE
+        }
 
         lifecycleScope.launch {
             try {
@@ -280,7 +449,21 @@ class MainActivity : AppCompatActivity() {
                     
                     user.fotoUrl?.let { profileBinding.ivAvatar.load(it) }
                     profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
-                    
+
+                    // SOLICITUDES DE SEGUIMIENTO: solo visible en el perfil propio
+                    if (user.uid == sessionUser?.id) {
+                        profileBinding.btnFollowRequests.visibility = View.VISIBLE
+                        profileBinding.btnFollowRequests.setOnClickListener {
+                            showFollowRequests(user.uid ?: "")
+                        }
+                    }
+
+                    profileBinding.btnSendMessage.setOnClickListener {
+                        val intent = Intent(this@MainActivity, ChatActivity::class.java)
+                        intent.putExtra("OTHER_USER_ID", user.uid)
+                        startActivity(intent)
+                    }
+
                     // ADMIN PANEL VISIBILITY
                     Log.d("RecetApp", "Rol del usuario: ${user.rol}")
                     if (user.rol.lowercase() == "administrador" || user.rol.lowercase() == "admin") {
@@ -301,7 +484,61 @@ class MainActivity : AppCompatActivity() {
         profileBinding.btnSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
     }
 
+    private fun showFollowRequests(uid: String) {
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val b = DialogFollowRequestsBinding.inflate(layoutInflater)
+        dialog.setContentView(b.root)
+
+        b.btnClose.setOnClickListener { dialog.dismiss() }
+
+        fun loadRequests() {
+            lifecycleScope.launch {
+                val requests = repository.getSolicitudesPendientes(uid)
+                b.tvEmptyRequests.visibility = if (requests.isEmpty()) View.VISIBLE else View.GONE
+                b.rvFollowRequests.adapter = FollowRequestAdapter(requests) { loadRequests() }
+            }
+        }
+
+        loadRequests()
+        dialog.show()
+    }
+
+    inner class FollowRequestAdapter(
+        private val list: List<SolicitudSeguimiento>,
+        private val onHandled: () -> Unit
+    ) : RecyclerView.Adapter<FollowRequestAdapter.ViewHolder>() {
+        override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemFollowRequestBinding.inflate(layoutInflater, p, false))
+        override fun onBindViewHolder(h: ViewHolder, pos: Int) {
+            val item = list[pos]
+            lifecycleScope.launch {
+                val solicitante = repository.getUsuarioByUid(item.solicitanteUid)
+                h.binding.tvName.text = solicitante?.nombreCompleto ?: solicitante?.nombreUsuario ?: "Usuario"
+                h.binding.tvHandle.text = "@${solicitante?.nombreUsuario ?: ""}"
+                solicitante?.fotoUrl?.let { h.binding.ivAvatar.load(it) }
+            }
+            h.binding.btnAccept.setOnClickListener {
+                val solicitudId = item.id ?: return@setOnClickListener
+                lifecycleScope.launch {
+                    val success = repository.aceptarSolicitud(solicitudId, item.solicitanteUid, item.destinoUid)
+                    if (success) onHandled()
+                    else Toast.makeText(this@MainActivity, "Error al aceptar la solicitud", Toast.LENGTH_SHORT).show()
+                }
+            }
+            h.binding.btnReject.setOnClickListener {
+                val solicitudId = item.id ?: return@setOnClickListener
+                lifecycleScope.launch {
+                    val success = repository.rechazarSolicitud(solicitudId)
+                    if (success) onHandled()
+                    else Toast.makeText(this@MainActivity, "Error al rechazar la solicitud", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        override fun getItemCount() = list.size
+        inner class ViewHolder(val binding: ItemFollowRequestBinding) : RecyclerView.ViewHolder(binding.root)
+    }
+
     private fun showEditProfile() {
+        currentViewState = "EDIT_PROFILE"
         mainBinding.contentFrame.removeAllViews()
         val editBinding = FragmentEditProfileBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
 
@@ -374,26 +611,90 @@ class MainActivity : AppCompatActivity() {
         inner class ViewHolder(val binding: ItemRecipeGridBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
-    inner class RecipeFeedAdapter(private var recipes: List<Receta>) : RecyclerView.Adapter<RecipeFeedAdapter.ViewHolder>() {
-        fun updateRecipes(newRecipes: List<Receta>) {
-            recipes = newRecipes
+    inner class RecipeFeedAdapter(private var items: List<Any>) : RecyclerView.Adapter<RecipeFeedAdapter.ViewHolder>() {
+        
+        private var likedIds = mutableSetOf<String>()
+
+        fun updateItems(newItems: List<Any>) {
+            items = newItems
+            fetchLikes()
             notifyDataSetChanged()
         }
+        
+        private fun fetchLikes() {
+            val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
+            lifecycleScope.launch {
+                try {
+                    val ids = repository.getLikedResourceIds(uid)
+                    likedIds.clear()
+                    likedIds.addAll(ids)
+                    notifyDataSetChanged() // Refrescar corazones
+                } catch (e: Exception) { }
+            }
+        }
+
+        fun updateRecipes(newRecipes: List<Receta>) {
+            items = newRecipes
+            fetchLikes()
+            notifyDataSetChanged()
+        }
+
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = 
-            ViewHolder(ItemRecipeFeedBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+            ViewHolder(ItemRecipeFeedBinding.inflate(layoutInflater, parent, false))
+            
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val recipe = recipes[position]
-            holder.binding.tvTitle.text = recipe.nombre
-            holder.binding.tvDescription.text = recipe.descripcion ?: "Sin descripción"
-            holder.binding.tvDifficulty.text = "${recipe.dificultad?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } ?: "Media"} 🍰"
-            holder.binding.tvLikesCount.text = recipe.totalLikes.toString()
-            holder.binding.tvCommentsCount.text = recipe.totalComentarios.toString()
+            val item = items[position]
+            val isRecipe = item is Receta
+            
+            val id: String?
+            val autorUid: String
+            val nombre: String
+            val descripcion: String?
+            val totalLikes: Int
+            val totalComentarios: Int
+            val categoria: String?
+
+            if (isRecipe) {
+                val r = item as Receta
+                id = r.id
+                autorUid = r.autorUid
+                nombre = r.nombre
+                descripcion = r.descripcion
+                totalLikes = r.totalLikes
+                totalComentarios = r.totalComentarios
+                categoria = r.categoria
+                holder.binding.tvDifficulty.visibility = View.VISIBLE
+                holder.binding.tvDifficulty.text = "${r.dificultad?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } ?: "Media"} 🍰"
+            } else {
+                val p = item as Publicacion
+                id = p.id
+                autorUid = p.autorUid
+                nombre = "Publicación"
+                descripcion = p.descripcion
+                totalLikes = p.totalLikes
+                totalComentarios = p.totalComentarios
+                categoria = null
+                holder.binding.tvDifficulty.visibility = View.GONE
+            }
+
+            holder.binding.tvTitle.text = nombre
+            holder.binding.tvDescription.text = descripcion ?: "Sin descripción"
+            holder.binding.tvLikesCount.text = totalLikes.toString()
+            holder.binding.tvCommentsCount.text = totalComentarios.toString()
+
+            // Cargar estado real del Like
+            val isAlreadyLiked = likedIds.contains(id ?: "")
+            if (isAlreadyLiked) {
+                holder.binding.ivLike.tag = "liked"
+                holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+            } else {
+                holder.binding.ivLike.tag = "unliked"
+                holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
+            }
 
             lifecycleScope.launch {
-                val images = repository.getImagenesReceta(recipe.id ?: "")
-                Log.d("RecetApp", "Feed - Receta: ${recipe.nombre}, Imágenes encontradas: ${images.size}")
+                val images = if (isRecipe) repository.getImagenesReceta(id ?: "") else repository.getImagenesPublicacion(id ?: "")
                 if (images.isNotEmpty()) {
-                    Log.d("RecetApp", "Feed - Cargando imagen: ${images[0]}")
                     holder.binding.ivRecipe.load(images[0]) {
                         crossfade(true)
                         placeholder(R.drawable.ic_recipe_placeholder)
@@ -404,63 +705,61 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // RED SOCIAL - LIKES (CON ACTUALIZACIÓN OPTIMISTA Y VERIFICACIÓN)
+            // RED SOCIAL - LIKES
             holder.binding.ivLike.setOnClickListener {
                 val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
+                
+                val currentLikes = holder.binding.tvLikesCount.text.toString().toIntOrNull() ?: 0
+                val isLiked = holder.binding.ivLike.tag == "liked"
+                
+                // Si el usuario quiere "dar like solo 1 vez", podemos hacer que si ya dio like,
+                // no haga nada o unliké. Para evitar múltiples likes accidentales:
+                holder.binding.ivLike.isEnabled = false 
+
+                if (!isLiked) {
+                    holder.binding.ivLike.tag = "liked"
+                    holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+                    holder.binding.tvLikesCount.text = (currentLikes + 1).toString()
+                    likedIds.add(id ?: "")
+                } else {
+                    holder.binding.ivLike.tag = "unliked"
+                    holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
+                    holder.binding.tvLikesCount.text = (if (currentLikes > 0) currentLikes - 1 else 0).toString()
+                    likedIds.remove(id ?: "")
+                }
+
                 lifecycleScope.launch {
                     try {
-                        // 1. Efecto visual inmediato (Optimista)
-                        // IMPORTANTE: Basamos la decisión en el color actual del icono
-                        val isCurrentlyLiked = holder.binding.ivLike.imageTintList == android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
-                        val currentLikes = holder.binding.tvLikesCount.text.toString().toIntOrNull() ?: 0
+                        val type = if (isRecipe) "receta" else "publicacion"
+                        repository.toggleLike(currentUid, id ?: "", type)
                         
-                        if (!isCurrentlyLiked) {
-                            holder.binding.tvLikesCount.text = (currentLikes + 1).toString()
-                            holder.binding.ivLike.setImageResource(R.drawable.ic_heart)
-                            holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
-                        } else {
-                            holder.binding.tvLikesCount.text = (if (currentLikes > 0) currentLikes - 1 else 0).toString()
-                            holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
+                        // Sincronizar número real tras el trigger
+                        val updated = if (isRecipe) repository.getRecetaById(id ?: "")?.totalLikes else {
+                             repository.getFeedPublicaciones().find { it.id == id }?.totalLikes
                         }
-
-                        // 2. Operación real en BD
-                        Log.d("RecetApp", "Interacción social enviada (Like=$isCurrentlyLiked)...")
-                        repository.toggleLike(currentUid, recipe.id ?: "", "receta")
-                        
-                        // 3. Confirmación final (Sincronización real)
-                        // Consultamos la receta de nuevo para obtener el número exacto del servidor
-                        val updated = repository.getRecetaById(recipe.id ?: "")
-                        updated?.let {
-                            holder.binding.tvLikesCount.text = it.totalLikes.toString()
-                            Log.d("RecetApp", "Likes actualizados desde servidor: ${it.totalLikes}")
-                        }
+                        updated?.let { holder.binding.tvLikesCount.text = it.toString() }
                     } catch (e: Exception) {
-                        Log.e("RecetApp", "Fallo al procesar Like: ${e.message}")
-                        Toast.makeText(this@MainActivity, "Error de sincronización", Toast.LENGTH_SHORT).show()
+                        Log.e("RecetApp", "Error Like: ${e.message}")
+                        notifyItemChanged(holder.adapterPosition)
+                    } finally {
+                        holder.binding.ivLike.isEnabled = true
                     }
                 }
             }
 
             holder.binding.ivComment.setOnClickListener {
-                showComments(recipe.id ?: "")
-            }
-
-            holder.binding.ivShare.setOnClickListener {
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Mira esta receta en RecetApp")
-                    putExtra(Intent.EXTRA_TEXT, "¡Mira la receta de ${recipe.nombre} en RecetApp! \n\n${recipe.descripcion}")
-                }
-                startActivity(Intent.createChooser(shareIntent, "Compartir receta"))
+                showComments(id ?: "", if (isRecipe) "receta" else "publicacion")
             }
 
             holder.itemView.setOnClickListener {
-                val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
-                intent.putExtra("RECIPE_ID", recipe.id)
-                startActivity(intent)
+                if (isRecipe) {
+                    val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
+                    intent.putExtra("RECIPE_ID", id)
+                    startActivity(intent)
+                }
             }
         }
-        override fun getItemCount() = recipes.size
+        override fun getItemCount() = items.size
         inner class ViewHolder(val binding: ItemRecipeFeedBinding) : RecyclerView.ViewHolder(binding.root)
     }
 }

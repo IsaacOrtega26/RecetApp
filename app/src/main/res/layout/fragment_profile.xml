@@ -9,12 +9,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@android:color/transparent"
+        android:paddingTop="24dp"
         app:elevation="0dp">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:navigationIconTint="@color/text_primary"
             app:title="username"
             app:titleTextColor="@color/text_primary">
 
@@ -85,6 +88,29 @@
                         android:layout_height="wrap_content"
                         android:text="Editar perfil"
                         android:textColor="@color/text_primary"
+                        app:strokeColor="@color/orange_primary"
+                        app:cornerRadius="12dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnFollowProfile"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Seguir"
+                        android:textColor="@color/white"
+                        android:visibility="gone"
+                        app:backgroundTint="@color/orange_primary"
+                        app:cornerRadius="12dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSendMessage"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Mensaje"
+                        android:textColor="@color/text_primary"
+                        android:visibility="gone"
                         app:strokeColor="@color/orange_primary"
                         app:cornerRadius="12dp" />
 
@@ -237,6 +263,18 @@
                     android:layout_height="wrap_content"
                     android:text="Publicaciones" />
             </com.google.android.material.tabs.TabLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnFollowRequests"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Solicitudes de seguimiento"
+                android:textColor="@color/orange_primary"
+                android:visibility="gone"
+                app:icon="@android:drawable/ic_menu_myplaces"
+                app:iconTint="@color/orange_primary" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnAdminPanel"

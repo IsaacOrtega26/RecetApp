@@ -23,11 +23,10 @@ class RecipeDetailActivity : AppCompatActivity() {
     private val repository = SupabaseRepository(SupabaseConfig.client)
     private var recipeId: String? = null
     private var currentRecipe: Receta? = null
-    private var isFollowing = false
+    private var followState = "ninguno" // "ninguno", "pendiente", "siguiendo"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemUI()
         binding = ActivityRecipeDetailBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -36,6 +35,16 @@ class RecipeDetailActivity : AppCompatActivity() {
         
         binding.toolbar.setOnMenuItemClickListener { item ->
             when(item.itemId) {
+                R.id.action_edit -> {
+                    val intent = Intent(this, CreateRecipeActivity::class.java)
+                    intent.putExtra("RECIPE_ID", recipeId)
+                    startActivity(intent)
+                    true
+                }
+                R.id.action_delete -> {
+                    showDeleteConfirmation()
+                    true
+                }
                 R.id.action_share -> {
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -76,8 +85,15 @@ class RecipeDetailActivity : AppCompatActivity() {
 
         binding.btnFollow.setOnClickListener { toggleFollow() }
 
+        binding.btnSendMessage.setOnClickListener {
+            val intent = Intent(this, ChatActivity::class.java)
+            intent.putExtra("OTHER_USER_ID", currentRecipe?.autorUid)
+            startActivity(intent)
+        }
+
         binding.tvLikes.setOnClickListener {
             val currentUid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
+            binding.tvLikes.isEnabled = false
             lifecycleScope.launch {
                 try {
                     repository.toggleLike(currentUid, recipeId ?: "", "receta")
@@ -85,8 +101,11 @@ class RecipeDetailActivity : AppCompatActivity() {
                     updated?.let {
                         binding.tvLikes.text = it.totalLikes.toString()
                     }
+                    updateLikeUI()
                 } catch (e: Exception) {
                     Log.e("RecetApp", "Error al dar like", e)
+                } finally {
+                    binding.tvLikes.isEnabled = true
                 }
             }
         }
@@ -136,12 +155,36 @@ class RecipeDetailActivity : AppCompatActivity() {
                         binding.tvAuthorName.text = user.nombreCompleto ?: user.nombreUsuario
                         binding.tvAuthorHandle.text = "@${user.nombreUsuario}"
                         user.fotoUrl?.let { binding.ivAuthorAvatar.load(it) }
+                        
+                        val currentUid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
+                        if (currentUid == user.uid) {
+                            binding.toolbar.menu.findItem(R.id.action_edit)?.isVisible = true
+                            binding.toolbar.menu.findItem(R.id.action_delete)?.isVisible = true
+                            binding.btnSendMessage.visibility = View.GONE
+                        }
+                        
                         checkFollowStatus(user.uid ?: "")
                     }
                     
                     updateSaveUI()
+                    updateLikeUI()
                     updateList(0)
                 } catch (e: Exception) { e.printStackTrace() }
+            }
+        }
+    }
+
+    private fun updateLikeUI() {
+        val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return
+        lifecycleScope.launch {
+            val likedIds = repository.getLikedResourceIds(uid)
+            val isLiked = likedIds.contains(recipeId ?: "")
+            if (isLiked) {
+                binding.tvLikes.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_heart, 0, 0, 0)
+                binding.tvLikes.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+            } else {
+                binding.tvLikes.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_heart, 0, 0, 0)
+                binding.tvLikes.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_secondary))
             }
         }
     }
@@ -161,14 +204,29 @@ class RecipeDetailActivity : AppCompatActivity() {
             return
         }
         lifecycleScope.launch {
-            isFollowing = repository.isFollowing(currentUid, authorUid)
+            followState = repository.getEstadoSeguimiento(currentUid, authorUid)
             updateFollowButton()
         }
     }
 
     private fun updateFollowButton() {
-        binding.btnFollow.text = if (isFollowing) "Siguiendo" else "Seguir"
-        binding.btnFollow.alpha = if (isFollowing) 0.6f else 1.0f
+        when (followState) {
+            "siguiendo" -> {
+                binding.btnFollow.text = "Siguiendo"
+                binding.btnFollow.alpha = 0.6f
+                binding.btnFollow.isEnabled = true
+            }
+            "pendiente" -> {
+                binding.btnFollow.text = "Solicitud enviada"
+                binding.btnFollow.alpha = 0.6f
+                binding.btnFollow.isEnabled = false
+            }
+            else -> {
+                binding.btnFollow.text = "Seguir"
+                binding.btnFollow.alpha = 1.0f
+                binding.btnFollow.isEnabled = true
+            }
+        }
     }
 
     private fun toggleFollow() {
@@ -176,12 +234,40 @@ class RecipeDetailActivity : AppCompatActivity() {
         val authorUid = currentRecipe?.autorUid ?: return
         lifecycleScope.launch {
             try {
-                if (isFollowing) repository.unfollowUser(currentUid, authorUid)
-                else repository.followUser(currentUid, authorUid)
-                isFollowing = !isFollowing
+                if (followState == "siguiendo") {
+                    repository.unfollowUser(currentUid, authorUid)
+                } else if (followState == "ninguno") {
+                    repository.followUser(currentUid, authorUid)
+                }
+                followState = repository.getEstadoSeguimiento(currentUid, authorUid)
                 updateFollowButton()
-            } catch (e: Exception) { 
-                Toast.makeText(this@RecipeDetailActivity, "Error al actualizar seguimiento", Toast.LENGTH_SHORT).show() 
+            } catch (e: Exception) {
+                Toast.makeText(this@RecipeDetailActivity, "Error al actualizar seguimiento", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showDeleteConfirmation() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Eliminar receta")
+            .setMessage("¿Estás seguro de que deseas eliminar esta receta? Esta acción no se puede deshacer.")
+            .setPositiveButton("Eliminar") { _, _ ->
+                deleteRecipe()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun deleteRecipe() {
+        val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return
+        val id = recipeId ?: return
+        lifecycleScope.launch {
+            val success = repository.deleteReceta(id, uid)
+            if (success) {
+                Toast.makeText(this@RecipeDetailActivity, "Receta eliminada", Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                Toast.makeText(this@RecipeDetailActivity, "Error al eliminar receta", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -255,9 +341,4 @@ class RecipeDetailActivity : AppCompatActivity() {
         inner class ViewHolder(v: View) : RecyclerView.ViewHolder(v)
     }
 
-    private fun hideSystemUI() {
-        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-    }
 }

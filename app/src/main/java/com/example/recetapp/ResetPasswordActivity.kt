@@ -28,6 +28,8 @@ class ResetPasswordActivity : AppCompatActivity() {
             insets
         }
 
+        findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
+
         val etPassword = findViewById<EditText>(R.id.etNewPassword)
         val etConfirm = findViewById<EditText>(R.id.etConfirmPassword)
         val btnReset = findViewById<Button>(R.id.btnResetPassword)

@@ -4,7 +4,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background_cream">
+    android:background="@color/background_cream"
+    android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
@@ -15,7 +16,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:navigationIcon="?attr/homeAsUpIndicator"
+            app:navigationIcon="@drawable/ic_arrow_back"
             app:navigationIconTint="@color/orange_primary"
             app:title="Panel de Administración"
             app:titleTextColor="@color/text_primary" />

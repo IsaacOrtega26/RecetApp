@@ -37,7 +37,6 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemUI()
         enableEdgeToEdge()
         setContentView(R.layout.activity_login)
         
@@ -185,7 +184,10 @@ class LoginActivity : AppCompatActivity() {
                             rol = existingByEmail?.rol ?: "usuario",
                             activo = true,
                         )
-                        repository.upsertUsuario(usuarioSync)
+                        val success = repository.upsertUsuario(usuarioSync)
+                        if (!success) {
+                            Log.w("RecetApp", "No se pudo sincronizar el perfil con Google (RLS o conflictos). Intentando continuar...")
+                        }
                     }
 
                     withContext(Dispatchers.Main) {
@@ -243,9 +245,4 @@ class LoginActivity : AppCompatActivity() {
         return isValid
     }
 
-    private fun hideSystemUI() {
-        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-    }
 }

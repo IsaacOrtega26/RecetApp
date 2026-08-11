@@ -12,16 +12,31 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <RelativeLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginTop="16dp"
-            android:fontFamily="serif"
-            android:text="RecetApp"
-            android:textColor="@color/orange_primary"
-            android:textSize="24sp"
-            android:textStyle="bold" />
+            android:paddingHorizontal="16dp"
+            android:paddingTop="32dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerInParent="true"
+                android:fontFamily="serif"
+                android:text="RecetApp"
+                android:textColor="@color/orange_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/ivChat"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:src="@drawable/ic_chat"
+                app:tint="@color/text_primary" />
+        </RelativeLayout>
 
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tabLayoutFeed"

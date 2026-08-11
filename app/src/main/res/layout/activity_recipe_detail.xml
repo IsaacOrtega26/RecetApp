@@ -4,13 +4,15 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background_cream">
+    android:background="@color/background_cream"
+    android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBar"
         android:layout_width="match_parent"
         android:layout_height="300dp"
-        android:background="@android:color/transparent">
+        android:background="@android:color/transparent"
+        android:fitsSystemWindows="true">
 
         <com.google.android.material.appbar.CollapsingToolbarLayout
             android:id="@+id/collapsingToolbar"
@@ -32,7 +34,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="?attr/actionBarSize"
                 app:layout_collapseMode="pin"
-                app:navigationIcon="?attr/homeAsUpIndicator"
+                app:navigationIcon="@drawable/ic_arrow_back"
                 app:navigationIconTint="@color/white"
                 app:menu="@menu/recipe_detail_menu" />
 
@@ -192,6 +194,18 @@
                     android:text="Seguir"
                     android:textColor="@color/orange_primary"
                     android:textSize="12sp"
+                    app:cornerRadius="12dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSendMessage"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Mensaje"
+                    android:textColor="@color/orange_primary"
+                    android:textSize="12sp"
+                    app:strokeColor="@color/orange_primary"
                     app:cornerRadius="12dp" />
             </LinearLayout>
 

@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import com.example.recetapp.databinding.*
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
@@ -24,12 +25,16 @@ class CreateRecipeActivity : AppCompatActivity() {
     private val steps = listOf("Información", "Ingredientes", "Pasos", "Imagen y visibilidad")
 
     // Recipe Data
+    private var recipeId: String? = null
     private var recipeName = ""
     private var estimatedTime = ""
     private var recipeVisibility = "publica"
+    private var recipeCategory = "General"
+    private var recipeDifficulty = "media"
     private val ingredientsList = mutableListOf(IngredienteReceta(recetaId = "", nombre = ""))
     private val stepsList = mutableListOf(PasoReceta(recetaId = "", orden = 1, descripcion = ""))
     private var selectedImageUri: Uri? = null
+    private var existingImageUrl: String? = null
     
     private var isSaving = false
 
@@ -42,9 +47,14 @@ class CreateRecipeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemUI()
         binding = ActivityCreateRecipeBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        recipeId = intent.getStringExtra("RECIPE_ID")
+        if (recipeId != null) {
+            binding.toolbar.title = "Editar receta"
+            loadRecipeData()
+        }
 
         binding.toolbar.setNavigationOnClickListener {
             if (currentStep > 0) {
@@ -69,6 +79,42 @@ class CreateRecipeActivity : AppCompatActivity() {
         renderStep()
     }
 
+    private fun loadRecipeData() {
+        val id = recipeId ?: return
+        lifecycleScope.launch {
+            try {
+                val recipe = repository.getRecetaById(id) ?: return@launch
+                recipeName = recipe.nombre
+                estimatedTime = recipe.tiempoEstimado?.toString() ?: ""
+                recipeVisibility = recipe.visibilidad
+                recipeCategory = recipe.categoria ?: "General"
+                recipeDifficulty = recipe.dificultad ?: "media"
+
+                val ingredients = repository.getIngredientes(id)
+                if (ingredients.isNotEmpty()) {
+                    ingredientsList.clear()
+                    ingredientsList.addAll(ingredients)
+                }
+
+                val stepsData = repository.getPasos(id)
+                if (stepsData.isNotEmpty()) {
+                    stepsList.clear()
+                    stepsList.addAll(stepsData)
+                }
+
+                val images = repository.getImagenesReceta(id)
+                if (images.isNotEmpty()) {
+                    existingImageUrl = images[0]
+                }
+                
+                renderStep()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                ToastManager.showToast(this@CreateRecipeActivity, "Error al cargar receta")
+            }
+        }
+    }
+
     private fun saveRecipeToSupabase() {
         val userId = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return
         if (recipeName.isBlank()) {
@@ -84,63 +130,75 @@ class CreateRecipeActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                // 1. Insert Receta
-                val newReceta = Receta(
+                // 1. Insert/Update Receta
+                val recetaToSave = Receta(
+                    id = recipeId,
                     autorUid = userId,
                     nombre = recipeName,
                     descripcion = "Receta creada desde Android",
-                    categoria = "General",
-                    dificultad = "media",
+                    categoria = recipeCategory,
+                    dificultad = recipeDifficulty,
                     tiempoEstimado = estimatedTime.toIntOrNull() ?: 0,
                     visibilidad = recipeVisibility
                 )
                 
-                val inserted = repository.insertReceta(newReceta)
+                val finalRecetaId: String
+                if (recipeId == null) {
+                    val inserted = repository.insertReceta(recetaToSave)
+                    finalRecetaId = inserted?.id ?: throw Exception("Error al insertar receta")
+                } else {
+                    repository.updateReceta(recetaToSave)
+                    finalRecetaId = recipeId!!
+                    // Limpiar datos antiguos para evitar duplicados
+                    repository.deleteIngredientes(finalRecetaId)
+                    repository.deletePasos(finalRecetaId)
+                }
                 
-                if (inserted?.id != null) {
-                    val recetaId = inserted.id
-                    
-                    // 2. Insert Ingredientes
-                    val finalIngredients = ingredientsList
-                        .filter { it.nombre.isNotBlank() }
-                        .map { it.copy(id = null, recetaId = recetaId) }
-                    
-                    if (finalIngredients.isNotEmpty()) {
-                        repository.insertIngredientes(finalIngredients)
-                    }
-                    
-                    // 3. Insert Pasos
-                    val finalSteps = stepsList
-                        .filter { it.descripcion.isNotBlank() }
-                        .map { it.copy(id = null, recetaId = recetaId) }
-                    
-                    if (finalSteps.isNotEmpty()) {
-                        repository.insertPasos(finalSteps)
-                    }
+                // 2. Insert Ingredientes
+                val finalIngredients = ingredientsList
+                    .filter { it.nombre.isNotBlank() }
+                    .map { it.copy(id = null, recetaId = finalRecetaId) }
+                
+                if (finalIngredients.isNotEmpty()) {
+                    repository.insertIngredientes(finalIngredients)
+                }
+                
+                // 3. Insert Pasos
+                val finalSteps = stepsList
+                    .filter { it.descripcion.isNotBlank() }
+                    .map { it.copy(id = null, recetaId = finalRecetaId) }
+                
+                if (finalSteps.isNotEmpty()) {
+                    repository.insertPasos(finalSteps)
+                }
 
-                    // 4. Upload Image
-                    selectedImageUri?.let { uri ->
-                        Log.d("RecetApp", "Subiendo imagen para receta $recetaId")
-                        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        if (bytes != null) {
-                            val fileName = "recipe_${recetaId}.jpg"
-                            val imageUrl = repository.uploadImage("recipes", fileName, bytes)
-                            if (imageUrl != null) {
-                                Log.d("RecetApp", "Imagen subida: $imageUrl")
-                                repository.insertImagenReceta(recetaId, imageUrl)
-                            } else {
-                                Log.e("RecetApp", "Error al subir imagen al Storage")
+                // 4. Upload Image
+                selectedImageUri?.let { uri ->
+                    Log.d("RecetApp", "Subiendo imagen para receta $finalRecetaId")
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    if (bytes != null) {
+                        val fileName = "recipe_${finalRecetaId}.jpg"
+                        val imageUrl = repository.uploadImage("recipes", fileName, bytes)
+                        if (imageUrl != null) {
+                            Log.d("RecetApp", "Imagen subida: $imageUrl")
+                            if (recipeId != null) {
+                                // Evitar filas duplicadas al reemplazar la imagen de una receta existente
+                                repository.deleteImagenesReceta(finalRecetaId)
                             }
+                            repository.insertImagenReceta(finalRecetaId, imageUrl)
+                        } else {
+                            Log.e("RecetApp", "Error al subir imagen al Storage")
                         }
                     }
-                    
-                    ToastManager.showToast(this@CreateRecipeActivity, "¡Receta publicada!")
-                    finish()
                 }
+                
+                val msg = if (recipeId == null) "¡Receta publicada!" else "¡Receta actualizada!"
+                ToastManager.showToast(this@CreateRecipeActivity, msg)
+                finish()
             } catch (e: Exception) {
                 isSaving = false
                 binding.btnContinue.isEnabled = true
-                binding.btnContinue.text = "Publicar receta"
+                binding.btnContinue.text = if (recipeId == null) "Publicar receta" else "Actualizar receta"
                 e.printStackTrace()
                 ToastManager.showToast(this@CreateRecipeActivity, "Error: ${e.message}", isLong = true)
             }
@@ -148,7 +206,6 @@ class CreateRecipeActivity : AppCompatActivity() {
     }
 
     private fun renderStep() {
-        hideSystemUI()
         binding.fragmentContainer.removeAllViews()
         val inflater = LayoutInflater.from(this)
 
@@ -161,7 +218,9 @@ class CreateRecipeActivity : AppCompatActivity() {
 
         binding.tvStepInfo.text = "Paso ${currentStep + 1} de 4: ${steps[currentStep]}"
         updateProgressBar()
-        binding.btnContinue.text = if (currentStep == 3) "Publicar receta" else "Continuar"
+        binding.btnContinue.text = if (currentStep == 3) {
+            if (recipeId == null) "Publicar receta" else "Actualizar receta"
+        } else "Continuar"
     }
 
     private fun updateProgressBar() {
@@ -177,6 +236,19 @@ class CreateRecipeActivity : AppCompatActivity() {
         val b = StepInfoBinding.inflate(inflater, binding.fragmentContainer, true)
         b.etRecipeName.setText(recipeName)
         b.etTime.setText(estimatedTime)
+
+        val categories = listOf("Dulce", "Salado", "Sin gluten", "Vegano", "Postres", "Panadería")
+        val catAdapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, categories)
+        b.actvCategory.setAdapter(catAdapter)
+        b.actvCategory.setText(recipeCategory, false)
+
+        // Dificultad
+        when (recipeDifficulty) {
+            "baja" -> b.chipEasy.isChecked = true
+            "media" -> b.chipMedium.isChecked = true
+            "alta" -> b.chipHigh.isChecked = true
+        }
+
         b.etRecipeName.addTextChangedListener(object : android.text.TextWatcher {
             override fun afterTextChanged(s: android.text.Editable?) { recipeName = s.toString() }
             override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
@@ -187,6 +259,18 @@ class CreateRecipeActivity : AppCompatActivity() {
             override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
             override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
         })
+        b.actvCategory.setOnItemClickListener { parent, _, position, _ ->
+            recipeCategory = parent.getItemAtPosition(position).toString()
+        }
+        b.cgDifficulty.setOnCheckedStateChangeListener { group, checkedIds ->
+            if (checkedIds.isNotEmpty()) {
+                recipeDifficulty = when (checkedIds[0]) {
+                    R.id.chipEasy -> "baja"
+                    R.id.chipHigh -> "alta"
+                    else -> "media"
+                }
+            }
+        }
     }
 
     private fun renderStepIngredients(inflater: LayoutInflater) {
@@ -212,9 +296,13 @@ class CreateRecipeActivity : AppCompatActivity() {
     private fun renderStepVisibility(inflater: LayoutInflater) {
         val b = StepVisibilityBinding.inflate(inflater, binding.fragmentContainer, true)
         
-        // Cargar vista previa si ya existe
-        selectedImageUri?.let { 
-            b.ivRecipePreview.setImageURI(it)
+        // Cargar vista previa si ya existe (nueva selección)
+        if (selectedImageUri != null) {
+            b.ivRecipePreview.setImageURI(selectedImageUri)
+            b.ivRecipePreview.visibility = View.VISIBLE
+        } else if (existingImageUrl != null) {
+            // Cargar imagen de Supabase si estamos editando y no hemos elegido una nueva
+            b.ivRecipePreview.load(existingImageUrl)
             b.ivRecipePreview.visibility = View.VISIBLE
         }
         
@@ -281,9 +369,4 @@ class CreateRecipeActivity : AppCompatActivity() {
         inner class ViewHolder(val binding: ItemRecipeStepBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
-    private fun hideSystemUI() {
-        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-    }
 }

@@ -37,7 +37,6 @@ class RegisterActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemUI()
         enableEdgeToEdge()
         setContentView(R.layout.activity_register)
         
@@ -258,9 +257,4 @@ class RegisterActivity : AppCompatActivity() {
         return isValid
     }
 
-    private fun hideSystemUI() {
-        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(WindowInsetsCompat.Type.navigationBars())
-    }
 }

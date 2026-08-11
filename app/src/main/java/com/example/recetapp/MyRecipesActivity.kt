@@ -9,18 +9,22 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.example.recetapp.databinding.ActivityMyRecipesBinding
 import com.example.recetapp.databinding.ItemRecipeGridBinding
+import com.google.android.material.tabs.TabLayout
+import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
 
 class MyRecipesActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMyRecipesBinding
     private val repository = SupabaseRepository(SupabaseConfig.client)
+    private var currentUserId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemUI()
         binding = ActivityMyRecipesBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        currentUserId = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
 
         binding.toolbar.setNavigationOnClickListener { finish() }
 
@@ -28,14 +32,27 @@ class MyRecipesActivity : AppCompatActivity() {
             startActivity(Intent(this, CreateRecipeActivity::class.java))
         }
 
-        loadMyRecipes()
+        binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) {
+                loadRecipes(tab?.position ?: 0)
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            override fun onTabReselected(tab: TabLayout.Tab?) {}
+        })
+
+        loadRecipes(0)
     }
 
-    private fun loadMyRecipes() {
+    private fun loadRecipes(tabPosition: Int) {
+        val uid = currentUserId ?: return
         lifecycleScope.launch {
             try {
-                // For demo, we get all recipes or filter by current user if available
-                val recipes = repository.getAllRecetas()
+                val recipes = when (tabPosition) {
+                    0 -> repository.getRecetasByAutor(uid)
+                    1 -> repository.getRecetasGuardadas(uid)
+                    else -> emptyList() // "Compartidas" placeholder
+                }
+                
                 binding.rvMyRecipes.adapter = RecipeAdapter(recipes) { recipe ->
                     val intent = Intent(this@MyRecipesActivity, RecipeDetailActivity::class.java)
                     intent.putExtra("RECIPE_ID", recipe.id)
@@ -68,9 +85,4 @@ class MyRecipesActivity : AppCompatActivity() {
         inner class ViewHolder(val binding: ItemRecipeGridBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
-    private fun hideSystemUI() {
-        val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-    }
 }

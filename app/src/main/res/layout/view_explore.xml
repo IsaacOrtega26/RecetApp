@@ -1,19 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background_cream"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:paddingHorizontal="16dp"
+    android:paddingTop="32dp"
+    android:paddingBottom="16dp">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <RelativeLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Explorar"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:fontFamily="serif"
-        android:textColor="@color/text_primary" />
+        android:paddingBottom="8dp">
+
+        <ImageButton
+            android:id="@+id/btnBackFromExplore"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back"
+            app:tint="@color/text_primary"
+            tools:ignore="ContentDescription" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:fontFamily="serif"
+            android:text="Explorar"
+            android:textColor="@color/text_primary"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+    </RelativeLayout>
 
     <EditText
         android:id="@+id/etSearch"
@@ -21,15 +42,33 @@
         android:layout_height="56dp"
         android:layout_marginTop="16dp"
         android:background="@drawable/bg_input_field"
-        android:hint="Buscar recetas..."
+        android:hint="Buscar recetas o personas..."
         android:textColor="@color/text_primary"
         android:textColorHint="@color/text_hint"
         android:paddingHorizontal="16dp" />
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabExplore"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/transparent"
+        app:tabIndicatorColor="@color/orange_primary"
+        app:tabSelectedTextColor="@color/orange_primary"
+        app:tabTextColor="@color/text_hint">
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Recetas" />
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Personas" />
+    </com.google.android.material.tabs.TabLayout>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvExplore"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="16dp" />
+        android:layout_marginTop="8dp" />
 
 </LinearLayout>
