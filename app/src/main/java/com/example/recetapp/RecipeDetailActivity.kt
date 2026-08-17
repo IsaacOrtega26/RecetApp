@@ -14,6 +14,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.recetapp.databinding.ActivityRecipeDetailBinding
 import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import coil.load
 import io.github.jan.supabase.auth.auth
 
@@ -97,15 +99,19 @@ class RecipeDetailActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     repository.toggleLike(currentUid, recipeId ?: "", "receta")
-                    val updated = repository.getRecetaById(recipeId ?: "")
-                    updated?.let {
-                        binding.tvLikes.text = it.totalLikes.toString()
+                    
+                    // Contar likes directamente para mayor precisión
+                    val realCount = repository.getLikeCount(recipeId ?: "")
+                    withContext(Dispatchers.Main) {
+                        binding.tvLikes.text = realCount.toString()
+                        updateLikeUI()
                     }
-                    updateLikeUI()
                 } catch (e: Exception) {
                     Log.e("RecetApp", "Error al dar like", e)
                 } finally {
-                    binding.tvLikes.isEnabled = true
+                    withContext(Dispatchers.Main) {
+                        binding.tvLikes.isEnabled = true
+                    }
                 }
             }
         }
@@ -144,7 +150,11 @@ class RecipeDetailActivity : AppCompatActivity() {
                     binding.tvCategory.text = recipe.categoria ?: "General"
                     binding.tvTime.text = "${recipe.tiempoEstimado} min"
                     binding.tvDifficulty.text = recipe.dificultad?.uppercase()
-                    binding.tvLikes.text = recipe.totalLikes.toString()
+                    
+                    // Cargar contador real de likes
+                    val realLikes = repository.getLikeCount(id)
+                    binding.tvLikes.text = realLikes.toString()
+                    
                     binding.tvDescription.text = recipe.descripcion
 
                     val images = repository.getImagenesReceta(id)
@@ -241,6 +251,10 @@ class RecipeDetailActivity : AppCompatActivity() {
                 }
                 followState = repository.getEstadoSeguimiento(currentUid, authorUid)
                 updateFollowButton()
+                
+                // OPCIONAL: Podrías recargar los datos del autor aquí si mostraras 
+                // sus seguidores en esta pantalla. Como no están en el layout actual,
+                // con actualizar el botón basta.
             } catch (e: Exception) {
                 Toast.makeText(this@RecipeDetailActivity, "Error al actualizar seguimiento", Toast.LENGTH_SHORT).show()
             }

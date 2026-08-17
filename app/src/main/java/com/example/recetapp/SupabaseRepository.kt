@@ -3,17 +3,30 @@ package com.example.recetapp
 import android.util.Log
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.query.Count
 import io.github.jan.supabase.storage.storage
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.decodeRecord
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 @Serializable
 private data class RecetaUpdatePayload(
@@ -108,9 +121,23 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             val existing = getUsuarioByEmail(currentEmail)
             
             if (existing != null && existing.uid != usuario.uid) {
-                Log.w(TAG, "Conflicto de UID detectado. Actualizando UID antiguo (${existing.uid}) al nuevo (${usuario.uid})")
+                val oldUid = existing.uid ?: ""
+                val newUid = usuario.uid ?: ""
+                Log.w(TAG, "Conflicto de UID detectado. Mudando datos de $oldUid a $newUid")
+                
+                // Mudanza de datos vía RPC (La función SQL que ejecutaste)
+                try {
+                    val params = buildJsonObject {
+                        put("old_uid_text", oldUid)
+                        put("new_uid_text", newUid)
+                    }
+                    supabase.postgrest.rpc("merge_user_activity", params)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error en mudanza RPC: ${e.message}")
+                }
+
                 // El RLS ahora permite esto gracias al Paso 1
-                supabase.from("usuarios").update(mapOf("uid_usuario" to usuario.uid)) {
+                supabase.from("usuarios").update(mapOf("uid_usuario" to newUid)) {
                     filter { eq("email", currentEmail) }
                 }
             }
@@ -152,6 +179,18 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
+    suspend fun updateFcmToken(uid: String, token: String) = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("usuarios").update(mapOf("fcm_token" to token)) {
+                filter { eq("uid_usuario", uid) }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updateFcmToken: ${e.message}")
+            false
+        }
+    }
+
     suspend fun deleteCuenta(uid: String) = withContext(Dispatchers.IO) {
         try {
             supabase.from("usuarios").delete { 
@@ -166,9 +205,15 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun getAllRecetas(): List<Receta> = withContext(Dispatchers.IO) {
         try {
-            supabase.from("recetas").select { 
+            val recipes = supabase.from("recetas").select { 
                 order("fecha_creacion", Order.DESCENDING) 
             }.decodeList<Receta>()
+            
+            // Sincronizar contadores de likes en tiempo real
+            recipes.map { recipe ->
+                val realCount = getLikeCount(recipe.id ?: "")
+                recipe.copy(totalLikes = realCount)
+            }
         } catch (e: Exception) { 
             Log.e(TAG, "Error getAllRecetas: ${e.message}")
             emptyList() 
@@ -188,8 +233,12 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             val res = supabase.from("recetas").select { 
                 filter { eq("autor_uid", autorUid) } 
                 order("fecha_creacion", Order.DESCENDING)
+            }.decodeList<Receta>()
+            
+            res.map { recipe ->
+                val realCount = getLikeCount(recipe.id ?: "")
+                recipe.copy(totalLikes = realCount)
             }
-            res.decodeList<Receta>()
         } catch (e: Exception) { 
             Log.e(TAG, "Error getRecetasByAutor: ${e.message}")
             emptyList() 
@@ -343,9 +392,15 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun getFeedPublicaciones(): List<Publicacion> = withContext(Dispatchers.IO) {
         try {
-            supabase.from("publicaciones").select {
+            val posts = supabase.from("publicaciones").select {
                 order("fecha_creacion", Order.DESCENDING)
             }.decodeList<Publicacion>()
+            
+            // Sincronizar contadores de likes en tiempo real
+            posts.map { post ->
+                val realCount = getLikeCount(post.id ?: "")
+                post.copy(totalLikes = realCount)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error getFeedPublicaciones: ${e.message}")
             emptyList()
@@ -390,15 +445,21 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                 val session = supabase.auth.currentSessionOrNull()
                 if (session?.user != null) {
                     val u = session.user!!
+                    val metadata = u.userMetadata
+                    val fullName = metadata?.get("full_name")?.jsonPrimitive?.content?.replace("\"", "")
+                        ?: metadata?.get("name")?.jsonPrimitive?.content?.replace("\"", "")
+                        ?: "Usuario"
+                    
                     upsertUsuario(Usuario(
                         uid = u.id,
                         email = u.email,
                         nombreUsuario = u.email?.substringBefore("@") ?: "user",
-                        nombreCompleto = u.userMetadata?.get("full_name")?.jsonPrimitive?.content ?: "Usuario"
+                        nombreCompleto = fullName
                     ))
                 }
             }
 
+            // 1. Verificación estricta de existencia
             val existing = supabase.from("likes").select {
                 filter {
                     eq("usuario_uid", usuarioUid)
@@ -406,17 +467,16 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                 }
             }.decodeList<Map<String, JsonElement>>()
             
-            val isLiked = existing.isNotEmpty()
+            val alreadyLiked = existing.isNotEmpty()
             
-            if (!isLiked) {
+            if (!alreadyLiked) {
+                // Solo insertamos si NO existe
                 supabase.from("likes").insert(mapOf(
                     "usuario_uid" to usuarioUid,
                     "recurso_id" to recursoId,
                     "tipo_recurso" to tipo
                 ))
                 
-                // Los contadores ahora se manejan vía Triggers en Supabase
-                // Solo enviamos la notificación
                 if (tipo == "receta") {
                     val receta = getRecetaById(recursoId)
                     receta?.let { 
@@ -424,6 +484,7 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                     }
                 }
             } else {
+                // Si ya existe, lo quitamos (Toggle)
                 supabase.from("likes").delete { 
                     filter { 
                         eq("usuario_uid", usuarioUid)
@@ -441,10 +502,26 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         try {
             val res = supabase.from("likes").select {
                 filter { eq("usuario_uid", usuarioUid) }
-            }.decodeList<Map<String, JsonElement>>()
-            res.mapNotNull { it["recurso_id"]?.jsonPrimitive?.content }
+            }.decodeList<Like>()
+            val ids = res.map { it.recursoId }
+            Log.d(TAG, "Likes recuperados para $usuarioUid: ${ids.size} items")
+            ids
         } catch (e: Exception) {
+            Log.e(TAG, "Error getLikedResourceIds: ${e.message}")
             emptyList()
+        }
+    }
+
+    suspend fun getLikeCount(recursoId: String): Int = withContext(Dispatchers.IO) {
+        try {
+            val res = supabase.from("likes").select {
+                filter { eq("recurso_id", recursoId) }
+                count(Count.EXACT)
+            }
+            res.countOrNull()?.toInt() ?: 0
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getLikeCount: ${e.message}")
+            0
         }
     }
 
@@ -466,11 +543,16 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                 val session = supabase.auth.currentSessionOrNull()
                 if (session?.user != null && session.user?.id == comentario.autorUid) {
                     val u = session.user!!
+                    val metadata = u.userMetadata
+                    val fullName = metadata?.get("full_name")?.jsonPrimitive?.content?.replace("\"", "")
+                        ?: metadata?.get("name")?.jsonPrimitive?.content?.replace("\"", "")
+                        ?: "Usuario"
+                    
                     upsertUsuario(Usuario(
                         uid = u.id,
                         email = u.email,
                         nombreUsuario = u.email?.substringBefore("@") ?: "user",
-                        nombreCompleto = u.userMetadata?.get("full_name")?.jsonPrimitive?.content ?: "Usuario"
+                        nombreCompleto = fullName
                     ))
                 }
             }
@@ -600,7 +682,7 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             val pending = supabase.from("solicitudes_seguimiento").select {
                 filter {
                     eq("solicitante_uid", followerUid)
-                    eq("destinatario_uid", followedUid)
+                    eq("destino_uid", followedUid)
                     eq("estado", "pendiente")
                 }
             }.decodeList<JsonElement>()
@@ -628,17 +710,25 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun aceptarSolicitud(solicitudId: String, seguidorUid: String, seguidoUid: String) = withContext(Dispatchers.IO) {
         try {
-            supabase.from("seguidores").insert(mapOf(
+            Log.d(TAG, "Aceptando solicitud $solicitudId: $seguidorUid -> $seguidoUid")
+            
+            // 1. Crear el vínculo en 'seguidores'
+            // Usamos upsert para evitar errores si ya existe
+            supabase.from("seguidores").upsert(mapOf(
                 "seguidor_uid" to seguidorUid,
                 "seguido_uid" to seguidoUid
             ))
+
+            // 2. Marcar solicitud como aceptada
             supabase.from("solicitudes_seguimiento").update(mapOf("estado" to "aceptada")) {
                 filter { eq("id", solicitudId) }
             }
+
+            // 3. Notificar al nuevo seguidor
             crearNotificacion(seguidorUid, seguidoUid, "seguidor")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error aceptarSolicitud: ${e.message}")
+            Log.e(TAG, "Error aceptarSolicitud: ${e.message}", e)
             false
         }
     }
@@ -655,7 +745,77 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
-    // --- MENSAJERÍA ---
+    // --- REALTIME ---
+
+    suspend fun listenToNotifications(uid: String, scope: CoroutineScope): Flow<Notificacion> {
+        val channel = supabase.realtime.channel("public:notificaciones")
+        val flow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "notificaciones"
+        }.mapNotNull { action ->
+            try {
+                action.decodeRecord<Notificacion>().takeIf { it.destinatarioUid == uid }
+            } catch (e: Exception) {
+                null
+            }
+        }
+        
+        scope.launch {
+            channel.subscribe()
+        }
+        
+        return flow
+    }
+
+    suspend fun listenToAllMessages(miUid: String, scope: CoroutineScope): Flow<Mensaje> {
+        val channel = supabase.realtime.channel("messages:all:$miUid")
+        val flow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "mensajes"
+        }.mapNotNull { action ->
+            try {
+                val msg = action.decodeRecord<Mensaje>()
+                if (msg.emisorUid == miUid || msg.receptorUid == miUid) msg else null
+            } catch (e: Exception) { null }
+        }
+        scope.launch { channel.subscribe() }
+        return flow
+    }
+
+    suspend fun listenToFollowRequests(uid: String, scope: CoroutineScope): Flow<SolicitudSeguimiento> {
+        val channel = supabase.realtime.channel("requests:$uid")
+        val flow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "solicitudes_seguimiento"
+        }.mapNotNull { action ->
+            try {
+                val req = action.decodeRecord<SolicitudSeguimiento>()
+                if (req.destinoUid == uid) req else null
+            } catch (e: Exception) { null }
+        }
+        scope.launch { channel.subscribe() }
+        return flow
+    }
+
+    // Nota: El repositorio no tiene lifecycleScope. 
+    // Vamos a mover el subscribe a la actividad o pasarle un scope.
+    // Ajustaremos esto en la implementación final.
+
+    suspend fun listenToMessages(miUid: String, otroUid: String, scope: CoroutineScope): Flow<Mensaje> {
+        val channel = supabase.realtime.channel("chat:$miUid:$otroUid")
+        val flow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "mensajes"
+        }.mapNotNull { action ->
+            try {
+                val msg = action.decodeRecord<Mensaje>()
+                // Solo nos interesan los mensajes entre estos dos usuarios
+                val isFromMe = msg.emisorUid == miUid && msg.receptorUid == otroUid
+                val isToMe = msg.emisorUid == otroUid && msg.receptorUid == miUid
+                if (isFromMe || isToMe) msg else null
+            } catch (e: Exception) {
+                null
+            }
+        }
+        scope.launch { channel.subscribe() }
+        return flow
+    }
 
     suspend fun sendMensaje(emisorUid: String, receptorUid: String, contenido: String) = withContext(Dispatchers.IO) {
         try {

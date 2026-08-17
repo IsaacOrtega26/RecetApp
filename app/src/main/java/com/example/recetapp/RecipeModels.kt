@@ -18,7 +18,8 @@ data class Usuario(
     @SerialName("total_recetas") val totalRecetas: Int = 0,
     @SerialName("fecha_creacion") val fechaCreacion: String? = null,
     val activo: Boolean = true,
-    val contrasena: String? = null
+    val contrasena: String? = null,
+    @SerialName("fcm_token") val fcmToken: String? = null
 )
 
 @Serializable

@@ -36,9 +36,9 @@ class AdminPanelActivity : AppCompatActivity() {
                 val totalUsers = repository.getTotalUsersCount()
                 val reports = repository.getReportes()
                 
-                binding.tvTotalRecipes.text = allRecipes.size.toString()
-                binding.tvTotalUsers.text = totalUsers.toString()
-                binding.tvTotalReports.text = reports.size.toString()
+                binding.tvTotalRecipes.text = allRecipes.size.coerceAtLeast(0).toString()
+                binding.tvTotalUsers.text = totalUsers.coerceAtLeast(0).toString()
+                binding.tvTotalReports.text = reports.size.coerceAtLeast(0).toString()
                 
                 // Lista de Reportes (o recetas para moderación)
                 binding.rvReports.layoutManager = LinearLayoutManager(this@AdminPanelActivity)

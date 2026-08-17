@@ -12,13 +12,22 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.example.recetapp.databinding.*
-import com.google.android.material.chip.Chip
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.status.SessionStatus
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import coil.load
 import java.util.Locale
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -28,6 +37,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var mainBinding: ActivityMainBinding
     private var currentViewState = "FEED" // "FEED", "EXPLORE", "NOTIF", "PROFILE", "OTHER_PROFILE", "EDIT_PROFILE", "CHATS"
+    private var notificationJob: kotlinx.coroutines.Job? = null
+    private var requestsJob: kotlinx.coroutines.Job? = null
 
     private val pickProfileImage = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
         uri?.let { updateProfilePreview(it) }
@@ -41,6 +52,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         checkSession()
         setupBackNavigation()
     }
@@ -61,12 +73,25 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun checkSession() {
-        val session = supabase.auth.currentSessionOrNull()
-        if (session != null) {
-            currentUser = null // Limpiar rastro de sesión anterior
-            setupMainShell()
-        } else {
-            showWelcome()
+        lifecycleScope.launch {
+            try {
+                // Esperar hasta que el estado de la sesión sea definitivo (no 'Initializing')
+                val status = supabase.auth.sessionStatus.filter { s -> s !is SessionStatus.Initializing }.first()
+                
+                if (status is SessionStatus.Authenticated) {
+                    Log.d("RecetApp", "Sesión persistente detectada: ${status.session.user?.email}")
+                    setupMainShell()
+                } else {
+                    Log.d("RecetApp", "No hay sesión persistente, mostrando bienvenida")
+                    showWelcome()
+                }
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // Expected when activity is finishing or backgrounded
+                Log.d("RecetApp", "Verificación de sesión cancelada")
+            } catch (ex: Exception) {
+                Log.e("RecetApp", "Error al verificar sesión", ex)
+                showWelcome()
+            }
         }
     }
 
@@ -79,6 +104,13 @@ class MainActivity : AppCompatActivity() {
     private fun setupMainShell() {
         mainBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(mainBinding.root)
+
+        // Manejo de Insets para que el encabezado no se corte con la barra de estado
+        ViewCompat.setOnApplyWindowInsetsListener(mainBinding.root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, 0)
+            insets
+        }
 
         val navListener = com.google.android.material.navigation.NavigationBarView.OnItemSelectedListener { item ->
             when (item.itemId) {
@@ -93,24 +125,89 @@ class MainActivity : AppCompatActivity() {
         try {
             mainBinding.bottomNavigation?.setOnItemSelectedListener(navListener)
             mainBinding.fabCreate?.setOnClickListener {
-                // Selector entre Receta y Publicación
-                val options = arrayOf("Nueva Receta", "Nueva Publicación")
-                androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("¿Qué quieres crear?")
-                    .setItems(options) { _, which ->
-                        if (which == 0) {
-                            startActivity(Intent(this, CreateRecipeActivity::class.java))
-                        } else {
-                            startActivity(Intent(this, CreatePostActivity::class.java))
-                        }
-                    }
-                    .show()
+                startActivity(Intent(this, CreateRecipeActivity::class.java))
             }
         } catch (e: Exception) {
             Log.e("RecetApp", "Error binding navigation", e)
         }
 
-        showFeed()
+        val startTab = intent.getStringExtra("EXTRA_START_TAB")
+        if (startTab == "PROFILE") {
+            mainBinding.bottomNavigation?.selectedItemId = R.id.nav_profile
+            showProfile(supabase.auth.currentSessionOrNull()?.user?.id)
+        } else {
+            showFeed()
+        }
+
+        startRealtimeNotifications()
+        startRealtimeRequests()
+        syncFcmToken()
+    }
+
+    private fun syncFcmToken() {
+        val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.w("RecetApp_FCM", "Fetching FCM registration token failed", task.exception)
+                return@addOnCompleteListener
+            }
+
+            val token = task.result
+            Log.d("RecetApp_FCM", "Token actual: $token")
+            
+            lifecycleScope.launch {
+                repository.updateFcmToken(uid, token)
+            }
+        }
+    }
+
+    private fun startRealtimeRequests() {
+        val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
+        requestsJob?.cancel()
+        requestsJob = lifecycleScope.launch {
+            repository.listenToFollowRequests(uid, this).collect {
+                withContext(Dispatchers.Main) {
+                    ToastManager.showToast(this@MainActivity, "¡Has recibido una nueva solicitud de seguimiento!", isLong = true)
+                    // No refrescamos la lista aquí porque suele ser un diálogo separado,
+                    // pero el usuario ya está avisado.
+                }
+            }
+        }
+    }
+
+    private fun startRealtimeNotifications() {
+        val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
+        notificationJob?.cancel()
+        notificationJob = lifecycleScope.launch {
+            try {
+                Log.d("RecetApp", "Iniciando escucha de notificaciones en tiempo real...")
+                repository.listenToNotifications(uid, this).collect { notif ->
+                    withContext(Dispatchers.Main) {
+                        showNotificationAlert(notif)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("RecetApp", "Error en listener de tiempo real", e)
+            }
+        }
+    }
+
+    private fun showNotificationAlert(notif: Notificacion) {
+        val message = when (notif.tipo) {
+            "like" -> "¡A alguien le gustó tu receta!"
+            "comentario" -> "Tienes un nuevo comentario"
+            "seguidor" -> "¡Tienes un nuevo seguidor!"
+            "solicitud" -> "Has recibido una solicitud de seguimiento"
+            "mensaje" -> "Nuevo mensaje recibido"
+            else -> "Nueva actividad en tu cuenta"
+        }
+        
+        ToastManager.showToast(this, message, isLong = true)
+        
+        // Si estamos en la pestaña de notificaciones, refrescar la lista
+        if (currentViewState == "NOTIF") {
+            showNotifications()
+        }
     }
 
     private fun showFeed() {
@@ -149,9 +246,9 @@ class MainActivity : AppCompatActivity() {
                     
                     feedAdapter.updateItems(filtered)
                     feedBinding.swipeRefresh.isRefreshing = false
-                } catch (e: Exception) {
-                    feedBinding.swipeRefresh.isRefreshing = false
-                }
+            } catch (_: Exception) {
+                feedBinding.swipeRefresh.isRefreshing = false
+            }
             }
         }
 
@@ -296,7 +393,7 @@ class MainActivity : AppCompatActivity() {
         inner class ViewHolder(val binding: ItemCommentBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
-    private fun showComments(recetaId: String, tipo: String = "receta") {
+    private fun showComments(recetaId: String, tipo: String = "receta", onCountChanged: (Int) -> Unit) {
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val b = DialogCommentsBinding.inflate(layoutInflater)
         dialog.setContentView(b.root)
@@ -306,7 +403,11 @@ class MainActivity : AppCompatActivity() {
         fun loadComments() {
             lifecycleScope.launch {
                 val comments = repository.getComentarios(recetaId)
-                b.rvComments.adapter = CommentAdapter(comments) { loadComments() }
+                b.rvComments.adapter = CommentAdapter(comments) { 
+                    loadComments()
+                }
+                // Notificar al feed el nuevo número de comentarios
+                onCountChanged(comments.size)
             }
         }
 
@@ -443,12 +544,48 @@ class MainActivity : AppCompatActivity() {
                     profileBinding.toolbar.title = "@${user.nombreUsuario}"
                     profileBinding.tvName.text = user.nombreCompleto ?: user.nombreUsuario
                     profileBinding.tvBio.text = user.descripcion ?: "¡Amante de la repostería!"
-                    profileBinding.tvRecipeCount.text = user.totalRecetas.toString()
-                    profileBinding.tvFollowersCount.text = user.totalSeguidores.toString()
-                    profileBinding.tvFollowingCount.text = user.totalSeguidos.toString()
+                    profileBinding.tvRecipeCount.text = user.totalRecetas.coerceAtLeast(0).toString()
+                    profileBinding.tvFollowersCount.text = user.totalSeguidores.coerceAtLeast(0).toString()
+                    profileBinding.tvFollowingCount.text = user.totalSeguidos.coerceAtLeast(0).toString()
                     
                     user.fotoUrl?.let { profileBinding.ivAvatar.load(it) }
                     profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
+
+                    // Lógica de Botón Seguir (perfil ajeno)
+                    if (!isOwnProfile) {
+                        fun refreshFollowStatus() {
+                            lifecycleScope.launch {
+                                val state = repository.getEstadoSeguimiento(sessionUser?.id ?: "", user.uid ?: "")
+                                profileBinding.btnFollowProfile.text = when(state) {
+                                    "siguiendo" -> "Siguiendo"
+                                    "pendiente" -> "Solicitud enviada"
+                                    else -> "Seguir"
+                                }
+                                profileBinding.btnFollowProfile.alpha = if (state == "ninguno") 1.0f else 0.6f
+                                profileBinding.btnFollowProfile.isEnabled = state != "pendiente"
+                                
+                                // Recargar datos de usuario para actualizar contador
+                                val updatedUser = repository.getUsuarioByUid(user.uid!!)
+                                updatedUser?.let {
+                                    profileBinding.tvFollowersCount.text = it.totalSeguidores.coerceAtLeast(0).toString()
+                                }
+                            }
+                        }
+
+                        refreshFollowStatus()
+
+                        profileBinding.btnFollowProfile.setOnClickListener {
+                            lifecycleScope.launch {
+                                val state = repository.getEstadoSeguimiento(sessionUser?.id ?: "", user.uid ?: "")
+                                if (state == "siguiendo") {
+                                    repository.unfollowUser(sessionUser?.id ?: "", user.uid ?: "")
+                                } else if (state == "ninguno") {
+                                    repository.followUser(sessionUser?.id ?: "", user.uid ?: "")
+                                }
+                                refreshFollowStatus()
+                            }
+                        }
+                    }
 
                     // SOLICITUDES DE SEGUIMIENTO: solo visible en el perfil propio
                     if (user.uid == sessionUser?.id) {
@@ -613,23 +750,31 @@ class MainActivity : AppCompatActivity() {
 
     inner class RecipeFeedAdapter(private var items: List<Any>) : RecyclerView.Adapter<RecipeFeedAdapter.ViewHolder>() {
         
-        private var likedIds = mutableSetOf<String>()
+        private val likedIds = mutableSetOf<String>()
+        private var isFetchingLikes = false
 
         fun updateItems(newItems: List<Any>) {
             items = newItems
-            fetchLikes()
+            if (!isFetchingLikes) fetchLikes()
             notifyDataSetChanged()
         }
         
         private fun fetchLikes() {
             val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
+            isFetchingLikes = true
             lifecycleScope.launch {
                 try {
                     val ids = repository.getLikedResourceIds(uid)
                     likedIds.clear()
                     likedIds.addAll(ids)
-                    notifyDataSetChanged() // Refrescar corazones
-                } catch (e: Exception) { }
+                    withContext(Dispatchers.Main) {
+                        notifyDataSetChanged() // Refrescar corazones con datos reales
+                    }
+                } catch (e: Exception) { 
+                    Log.e("RecetApp", "Error al refrescar likes: ${e.message}")
+                } finally {
+                    isFetchingLikes = false
+                }
             }
         }
 
@@ -664,7 +809,7 @@ class MainActivity : AppCompatActivity() {
                 totalComentarios = r.totalComentarios
                 categoria = r.categoria
                 holder.binding.tvDifficulty.visibility = View.VISIBLE
-                holder.binding.tvDifficulty.text = "${r.dificultad?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } ?: "Media"} 🍰"
+                holder.binding.tvDifficulty.text = getString(R.string.difficulty_format, r.dificultad?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } ?: "Media")
             } else {
                 val p = item as Publicacion
                 id = p.id
@@ -679,8 +824,8 @@ class MainActivity : AppCompatActivity() {
 
             holder.binding.tvTitle.text = nombre
             holder.binding.tvDescription.text = descripcion ?: "Sin descripción"
-            holder.binding.tvLikesCount.text = totalLikes.toString()
-            holder.binding.tvCommentsCount.text = totalComentarios.toString()
+            holder.binding.tvLikesCount.text = totalLikes.coerceAtLeast(0).toString()
+            holder.binding.tvCommentsCount.text = totalComentarios.coerceAtLeast(0).toString()
 
             // Cargar estado real del Like
             val isAlreadyLiked = likedIds.contains(id ?: "")
@@ -712,10 +857,10 @@ class MainActivity : AppCompatActivity() {
                 val currentLikes = holder.binding.tvLikesCount.text.toString().toIntOrNull() ?: 0
                 val isLiked = holder.binding.ivLike.tag == "liked"
                 
-                // Si el usuario quiere "dar like solo 1 vez", podemos hacer que si ya dio like,
-                // no haga nada o unliké. Para evitar múltiples likes accidentales:
+                // Bloqueo inmediato para evitar doble petición
                 holder.binding.ivLike.isEnabled = false 
 
+                // Cambio visual instantáneo (Optimista)
                 if (!isLiked) {
                     holder.binding.ivLike.tag = "liked"
                     holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
@@ -724,7 +869,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     holder.binding.ivLike.tag = "unliked"
                     holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
-                    holder.binding.tvLikesCount.text = (if (currentLikes > 0) currentLikes - 1 else 0).toString()
+                    holder.binding.tvLikesCount.text = (currentLikes - 1).coerceAtLeast(0).toString()
                     likedIds.remove(id ?: "")
                 }
 
@@ -733,22 +878,41 @@ class MainActivity : AppCompatActivity() {
                         val type = if (isRecipe) "receta" else "publicacion"
                         repository.toggleLike(currentUid, id ?: "", type)
                         
-                        // Sincronizar número real tras el trigger
-                        val updated = if (isRecipe) repository.getRecetaById(id ?: "")?.totalLikes else {
-                             repository.getFeedPublicaciones().find { it.id == id }?.totalLikes
+                        // Sincronizar número real contando directamente en la tabla de likes
+                        // Esto evita depender de disparadores (triggers) que puedan fallar
+                        val realLikeCount = repository.getLikeCount(id ?: "")
+                        
+                        withContext(Dispatchers.Main) {
+                            holder.binding.tvLikesCount.text = realLikeCount.toString()
                         }
-                        updated?.let { holder.binding.tvLikesCount.text = it.toString() }
                     } catch (e: Exception) {
-                        Log.e("RecetApp", "Error Like: ${e.message}")
-                        notifyItemChanged(holder.adapterPosition)
+                        Log.e("RecetApp", "Error al procesar Like: ${e.message}")
+                        // Revertir cambio visual en caso de error de red
+                        withContext(Dispatchers.Main) {
+                            if (isLiked) {
+                                holder.binding.ivLike.tag = "liked"
+                                holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+                                holder.binding.tvLikesCount.text = currentLikes.coerceAtLeast(0).toString()
+                                likedIds.add(id ?: "")
+                            } else {
+                                holder.binding.ivLike.tag = "unliked"
+                                holder.binding.ivLike.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
+                                holder.binding.tvLikesCount.text = currentLikes.coerceAtLeast(0).toString()
+                                likedIds.remove(id ?: "")
+                            }
+                        }
                     } finally {
-                        holder.binding.ivLike.isEnabled = true
+                        withContext(Dispatchers.Main) {
+                            holder.binding.ivLike.isEnabled = true
+                        }
                     }
                 }
             }
 
             holder.binding.ivComment.setOnClickListener {
-                showComments(id ?: "", if (isRecipe) "receta" else "publicacion")
+                showComments(id ?: "", if (isRecipe) "receta" else "publicacion") { newCount ->
+                    holder.binding.tvCommentsCount.text = newCount.coerceAtLeast(0).toString()
+                }
             }
 
             holder.itemView.setOnClickListener {

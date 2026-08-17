@@ -1,14 +1,8 @@
-# Tareas: Arreglo de Área Táctil (Safe Areas)
+# Tarea: Implementación de Notificaciones Push (FCM)
 
-- [x] Aplicar `fitsSystemWindows="true"` en Layouts raíz
-    - [x] `activity_recipe_detail.xml`
-    - [x] `activity_create_recipe.xml`
-    - [x] `activity_create_post.xml`
-    - [x] `activity_messages.xml`
-    - [x] `activity_chat.xml`
-    - [x] `activity_cooking_mode.xml`
-    - [x] `activity_settings.xml`
-    - [x] `activity_admin_panel.xml`
-    - [x] `activity_main.xml`
-- [x] Verificar que las flechas de retroceso estén en la zona segura
-- [x] Confirmar compilación y visualización
+- [x] Configurar dependencias en `libs.versions.toml` y `build.gradle.kts`
+- [x] Actualizar modelo `Usuario` en `RecipeModels.kt` con `fcm_token`
+- [x] Implementar `updateFcmToken` en `SupabaseRepository.kt`
+- [x] Crear `MyFirebaseMessagingService.kt` para manejar notificaciones entrantes
+- [x] Integrar obtención de token en `MainActivity.kt`
+- [x] Solicitar al usuario añadir columna SQL y archivo `google-services.json`

@@ -67,6 +67,7 @@ class RegisterActivity : AppCompatActivity() {
         val etFullName = findViewById<EditText>(R.id.etFullName)
         val etEmail = findViewById<EditText>(R.id.etEmail)
         val etPassword = findViewById<EditText>(R.id.etPassword)
+        val etConfirmPassword = findViewById<EditText>(R.id.etConfirmPassword)
         val btnRegister = findViewById<Button>(R.id.btnRegister)
         val btnGoogle = findViewById<Button>(R.id.btnGoogleRegister)
         val progressBar = findViewById<View>(R.id.progressBar)
@@ -76,8 +77,9 @@ class RegisterActivity : AppCompatActivity() {
             val name = etFullName.text.toString().trim()
             val email = etEmail.text.toString().trim()
             val password = etPassword.text.toString().trim()
+            val confirmPassword = etConfirmPassword.text.toString().trim()
 
-            if (!validateForm(name, email, password, etFullName, etEmail, etPassword)) return@setOnClickListener
+            if (!validateForm(name, email, password, confirmPassword, etFullName, etEmail, etPassword, etConfirmPassword)) return@setOnClickListener
 
             setLoadingState(isLoading = true, btnRegister, btnGoogle, progressBar)
 
@@ -110,7 +112,9 @@ class RegisterActivity : AppCompatActivity() {
 
                     withContext(Dispatchers.Main) {
                         ToastManager.showToast(this@RegisterActivity, "¡Cuenta creada con éxito!")
-                        startActivity(Intent(this@RegisterActivity, MainActivity::class.java))
+                        val intent = Intent(this@RegisterActivity, MainActivity::class.java)
+                        intent.putExtra("EXTRA_START_TAB", "PROFILE")
+                        startActivity(intent)
                         finishAffinity()
                     }
                 } catch (e: Exception) {
@@ -199,7 +203,9 @@ class RegisterActivity : AppCompatActivity() {
                         isBusy = false
                         ToastManager.showToast(this@RegisterActivity, "¡Bienvenido con Google!")
                         kotlinx.coroutines.delay(100L)
-                        startActivity(Intent(this@RegisterActivity, MainActivity::class.java))
+                        val intent = Intent(this@RegisterActivity, MainActivity::class.java)
+                        intent.putExtra("EXTRA_START_TAB", "FEED")
+                        startActivity(intent)
                         finishAffinity()
                     }
                 }
@@ -234,7 +240,7 @@ class RegisterActivity : AppCompatActivity() {
         progress?.visibility = if (isLoading) View.VISIBLE else View.GONE
     }
 
-    private fun validateForm(name: String, email: String, password: String, etName: EditText, etEmail: EditText, etPass: EditText): Boolean {
+    private fun validateForm(name: String, email: String, password: String, confirm: String, etName: EditText, etEmail: EditText, etPass: EditText, etConfirm: EditText): Boolean {
         var isValid = true
         if (name.isEmpty()) {
             etName.error = "El nombre es obligatorio"
@@ -252,6 +258,13 @@ class RegisterActivity : AppCompatActivity() {
             isValid = false
         } else if (password.length < 6) { // Supabase default min is 6
             etPass.error = "Mínimo 6 caracteres"
+            isValid = false
+        }
+        if (confirm.isEmpty()) {
+            etConfirm.error = "Confirma tu contraseña"
+            isValid = false
+        } else if (password != confirm) {
+            etConfirm.error = "Las contraseñas no coinciden"
             isValid = false
         }
         return isValid

@@ -98,7 +98,7 @@
         android:id="@+id/tvLabelPassword"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="16dp"
         android:text="@string/label_password"
         android:textColor="@color/text_primary"
         android:textSize="16sp"
@@ -129,19 +129,55 @@
 
     </com.google.android.material.textfield.TextInputLayout>
 
+    <!-- Confirmar Contraseña -->
+    <TextView
+        android:id="@+id/tvLabelConfirmPassword"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Confirmar contraseña"
+        android:textColor="@color/text_primary"
+        android:textSize="16sp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tilPassword" />
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/tilConfirmPassword"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        app:hintEnabled="false"
+        app:passwordToggleEnabled="true"
+        app:passwordToggleTint="@color/text_hint"
+        app:layout_constraintTop_toBottomOf="@id/tvLabelConfirmPassword">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etConfirmPassword"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_input_field"
+            android:hint="Repite tu contraseña"
+            android:inputType="textPassword"
+            android:paddingHorizontal="16dp"
+            android:paddingEnd="48dp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_hint" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
     <!-- Botón Registrarse -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnRegister"
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:layout_marginTop="32dp"
+        android:layout_marginTop="24dp"
         android:backgroundTint="@color/orange_primary"
         android:text="@string/btn_register"
         android:textAllCaps="false"
         android:textColor="@android:color/white"
         android:textSize="18sp"
         app:cornerRadius="24dp"
-        app:layout_constraintTop_toBottomOf="@id/tilPassword" />
+        app:layout_constraintTop_toBottomOf="@id/tilConfirmPassword" />
 
     <LinearLayout
         android:id="@+id/llOrSeparator"

@@ -13,6 +13,9 @@ import com.example.recetapp.databinding.ItemMessageMeBinding
 import com.example.recetapp.databinding.ItemMessageOtherBinding
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 
 class ChatActivity : AppCompatActivity() {
 
@@ -20,6 +23,9 @@ class ChatActivity : AppCompatActivity() {
     private val repository = SupabaseRepository(SupabaseConfig.client)
     private var otherUserId: String? = null
     private var currentUserId: String? = null
+    private var chatJob: kotlinx.coroutines.Job? = null
+    private val messagesList = mutableListOf<Mensaje>()
+    private lateinit var adapter: MessageAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,13 +57,39 @@ class ChatActivity : AppCompatActivity() {
     private fun loadMessages() {
         val miUid = currentUserId ?: return
         val otroUid = otherUserId ?: return
+        
+        // Configurar adaptador inicial
+        adapter = MessageAdapter(messagesList, miUid)
+        binding.rvMessages.adapter = adapter
+        
         lifecycleScope.launch {
             try {
                 val list = repository.getMensajesConUsuario(miUid, otroUid)
-                binding.rvMessages.adapter = MessageAdapter(list, miUid)
-                binding.rvMessages.scrollToPosition(list.size - 1)
+                messagesList.clear()
+                messagesList.addAll(list)
+                adapter.notifyDataSetChanged()
+                binding.rvMessages.scrollToPosition(messagesList.size - 1)
+                
+                // Iniciar escucha en tiempo real
+                startRealtimeChat(miUid, otroUid)
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    private fun startRealtimeChat(miUid: String, otroUid: String) {
+        chatJob?.cancel()
+        chatJob = lifecycleScope.launch {
+            repository.listenToMessages(miUid, otroUid, this).collect { newMsg ->
+                // Evitar duplicados si el mensaje ya se añadió localmente al enviar
+                if (messagesList.none { it.id == newMsg.id && it.id != null }) {
+                    messagesList.add(newMsg)
+                    withContext(Dispatchers.Main) {
+                        adapter.notifyItemInserted(messagesList.size - 1)
+                        binding.rvMessages.scrollToPosition(messagesList.size - 1)
+                    }
+                }
             }
         }
     }
@@ -68,11 +100,15 @@ class ChatActivity : AppCompatActivity() {
         val content = binding.etMessage.text.toString().trim()
         
         if (content.isNotEmpty()) {
+            binding.btnSend.isEnabled = false
             lifecycleScope.launch {
                 val success = repository.sendMensaje(miUid, otroUid, content)
-                if (success) {
-                    binding.etMessage.setText("")
-                    loadMessages()
+                withContext(Dispatchers.Main) {
+                    if (success) {
+                        binding.etMessage.setText("")
+                        // El mensaje aparecerá solo vía Realtime para evitar duplicidad visual
+                    }
+                    binding.btnSend.isEnabled = true
                 }
             }
         }

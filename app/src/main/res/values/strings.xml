@@ -19,4 +19,6 @@
     <string name="btn_google">Continuar con Google</string>
     <string name="or_separator">O</string>
     <string name="handle_placeholder">\@usuario</string>
+    <string name="handle_format">\@%1$s</string>
+    <string name="difficulty_format">%1$s 🍰</string>
 </resources>

@@ -96,7 +96,9 @@ class LoginActivity : AppCompatActivity() {
                     Log.d("RecetApp", "Sesión iniciada con éxito")
                     withContext(Dispatchers.Main) {
                         ToastManager.showToast(this@LoginActivity, "¡Bienvenido de nuevo!")
-                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
+                        val intent = Intent(this@LoginActivity, MainActivity::class.java)
+                        intent.putExtra("EXTRA_START_TAB", "FEED")
+                        startActivity(intent)
                         finishAffinity()
                     }
                 } catch (e: Exception) {
@@ -194,7 +196,9 @@ class LoginActivity : AppCompatActivity() {
                         isBusy = false
                         ToastManager.showToast(this@LoginActivity, "¡Bienvenido con Google!")
                         kotlinx.coroutines.delay(100L)
-                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
+                        val intent = Intent(this@LoginActivity, MainActivity::class.java)
+                        intent.putExtra("EXTRA_START_TAB", "FEED")
+                        startActivity(intent)
                         finishAffinity()
                     }
                 }

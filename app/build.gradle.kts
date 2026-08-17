@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     id("org.jetbrains.kotlin.plugin.serialization")
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -8,7 +9,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.recetapp"
+        applicationId = "com.example.recetapp.v2"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
@@ -46,10 +47,17 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:postgrest-kt:3.0.1")
     implementation("io.github.jan-tennert.supabase:auth-kt:3.0.1")
     implementation("io.github.jan-tennert.supabase:storage-kt:3.0.1")
+    implementation("io.github.jan-tennert.supabase:realtime-kt:3.0.1")
     implementation("io.github.jan-tennert.supabase:supabase-kt:3.0.1")
     implementation("io.ktor:ktor-client-android:3.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("io.coil-kt:coil:2.6.0")
+
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+    implementation(libs.firebase.inappmessaging)
+    implementation(libs.firebase.analytics)
 
     // Google Auth
     implementation(libs.credman)

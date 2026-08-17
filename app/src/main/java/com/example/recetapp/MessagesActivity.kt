@@ -12,11 +12,16 @@ import com.example.recetapp.databinding.ActivityMessagesBinding
 import com.example.recetapp.databinding.ItemConversationBinding
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 class MessagesActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMessagesBinding
     private val repository = SupabaseRepository(SupabaseConfig.client)
+    private var messagesJob: kotlinx.coroutines.Job? = null
+    private val conversationsList = mutableListOf<Mensaje>()
+    private lateinit var adapter: ConversationAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,21 +35,43 @@ class MessagesActivity : AppCompatActivity() {
 
     private fun loadConversations() {
         val currentUid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return
+        
+        adapter = ConversationAdapter(conversationsList, currentUid)
+        binding.rvConversations.adapter = adapter
+
         lifecycleScope.launch {
             try {
                 val allMessages = repository.getConversaciones(currentUid)
+                updateLocalConversations(allMessages, currentUid)
                 
-                // Agrupar por el otro usuario
-                val conversations = allMessages.groupBy { 
-                    if (it.emisorUid == currentUid) it.receptorUid else it.emisorUid 
-                }.map { entry ->
-                    // Nos quedamos con el último mensaje de cada conversación
-                    entry.value.first()
-                }
-
-                binding.rvConversations.adapter = ConversationAdapter(conversations, currentUid)
+                // Iniciar escucha en tiempo real
+                startRealtimeConversations(currentUid)
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    private fun updateLocalConversations(allMessages: List<Mensaje>, currentUid: String) {
+        val grouped = allMessages.groupBy { 
+            if (it.emisorUid == currentUid) it.receptorUid else it.emisorUid 
+        }.map { it.value.first() }
+        
+        conversationsList.clear()
+        conversationsList.addAll(grouped)
+        adapter.notifyDataSetChanged()
+    }
+
+    private fun startRealtimeConversations(currentUid: String) {
+        messagesJob?.cancel()
+        messagesJob = lifecycleScope.launch {
+            repository.listenToAllMessages(currentUid, this).collect {
+                // Al recibir CUALQUIER mensaje nuevo, refrescamos la lista de agrupados
+                // (Es lo más sencillo para mantener el orden y el "último mensaje")
+                val allMessages = repository.getConversaciones(currentUid)
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    updateLocalConversations(allMessages, currentUid)
+                }
             }
         }
     }

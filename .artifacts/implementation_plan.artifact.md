@@ -1,47 +1,57 @@
-# Arreglo de Navegación (Hit Area y Posicionamiento)
+# Implementación de Notificaciones Push (FCM)
 
-El usuario reporta dificultades para usar el botón de retroceso porque los encabezados están muy arriba (posiblemente bajo la barra de estado). Se ajustarán los layouts para que respeten las áreas seguras del sistema (`fitsSystemWindows`) y se bajará visualmente el Toolbar para mejorar la usabilidad.
+Este plan describe los pasos para integrar Firebase Cloud Messaging (FCM) y permitir que los usuarios reciban notificaciones incluso con la app cerrada o el teléfono bloqueado.
 
-## Proposed Changes
+## Requisitos Previos del Usuario
 
-### Ajuste de Layouts (Sistema de Ventanas)
+> [!IMPORTANT]
+> Para que esto funcione, debes realizar lo siguiente fuera de la app:
+> 1.  Crea un proyecto en [Firebase Console](https://console.firebase.google.com/).
+> 2.  Registra tu app Android con el paquete `com.example.recetapp.v2`.
+> 3.  Descarga el archivo `google-services.json` y colócalo en la carpeta `app/` de tu proyecto.
+> 4.  **Habilitar Cloud Messaging**: En Firebase, ve a Project Settings > Cloud Messaging y asegúrate de que la API esté habilitada.
 
-Se activará `android:fitsSystemWindows="true"` en los contenedores principales de todas las actividades secundarias. Esto hará que el sistema automáticamente reserve el espacio de la barra de estado, bajando el Toolbar a una posición cómoda y clicable.
+## Cambios Propuestos
 
-#### [MODIFY] [activity_recipe_detail.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_recipe_detail.xml)
-- Añadir `android:fitsSystemWindows="true"` al `CoordinatorLayout` raíz.
-- Añadir `android:fitsSystemWindows="true"` al `AppBarLayout`.
+### 1. Configuración de Firebase y Dependencias
 
-#### [MODIFY] [activity_create_recipe.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_create_recipe.xml)
-- Añadir `android:fitsSystemWindows="true"` al `ConstraintLayout` raíz.
+#### [MODIFY] [build.gradle.kts (Proyecto)](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/build.gradle.kts)
+- Añadir el plugin de Google Services.
 
-#### [MODIFY] [activity_create_post.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_create_post.xml)
-- Añadir `android:fitsSystemWindows="true"` al `ConstraintLayout` raíz.
+#### [MODIFY] [build.gradle.kts (App)](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/build.gradle.kts)
+- Añadir las librerías de Firebase (BoM y Messaging).
 
-#### [MODIFY] [activity_messages.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_messages.xml)
-- Añadir `android:fitsSystemWindows="true"` al `LinearLayout` raíz.
+### 2. Modelo de Datos y Repositorio
 
-#### [MODIFY] [activity_chat.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_chat.xml)
-- Añadir `android:fitsSystemWindows="true"` al `ConstraintLayout` raíz.
+#### [MODIFY] [RecipeModels.kt](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/java/com/example/recetapp/RecipeModels.kt)
+- Añadir el campo `fcmToken: String?` a la clase `Usuario`.
 
-#### [MODIFY] [activity_cooking_mode.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_cooking_mode.xml)
-- Añadir `android:fitsSystemWindows="true"` al `ConstraintLayout` raíz.
+#### [MODIFY] [SupabaseRepository.kt](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/java/com/example/recetapp/SupabaseRepository.kt)
+- Añadir función para actualizar únicamente el token FCM del usuario actual.
 
-#### [MODIFY] [activity_settings.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_settings.xml)
-- Añadir `android:fitsSystemWindows="true"` al `LinearLayout` raíz.
+### 3. Servicio de Mensajería
 
-#### [MODIFY] [activity_admin_panel.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_admin_panel.xml)
-- Añadir `android:fitsSystemWindows="true"` al `CoordinatorLayout` raíz.
+#### [NEW] `MyFirebaseMessagingService.kt`
+- Implementar el servicio que escucha las notificaciones cuando llegan al dispositivo.
+- Mostrar una notificación nativa de Android en la barra de estado.
 
-### Refuerzo en MainActivity
+### 4. Integración en la App
 
-#### [MODIFY] [activity_main.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/layout/activity_main.xml)
-- Asegurar que el contenedor principal tenga `android:fitsSystemWindows="true"`.
+#### [MODIFY] [MainActivity.kt](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/java/com/example/recetapp/MainActivity.kt)
+- Al iniciar sesión, obtener el Token de Firebase y guardarlo en la base de datos de Supabase vinculada al usuario.
 
-## Verification Plan
+## Configuración de Base de Datos (SQL)
 
-### Manual Verification
-1. Abrir la pantalla de detalle de una receta.
-2. Verificar que la flecha de retroceso ya no está detrás del reloj o los iconos de batería.
-3. Pulsar el botón de retroceso. Debe cerrarse la actividad sin resistencia.
-4. Repetir la prueba en el chat y en la creación de recetas.
+> [!TIP]
+> Debes ejecutar este comando en tu **SQL Editor** de Supabase para preparar la tabla:
+> ```sql
+> ALTER TABLE usuarios ADD COLUMN fcm_token TEXT;
+> ```
+
+## Plan de Verificación
+
+### Verificación Manual
+1. Abrir la app y loguearse.
+2. Verificar en la base de datos (Supabase) que la columna `fcm_token` tiene un valor largo (el token).
+3. Cerrar la app totalmente.
+4. Enviar una notificación de prueba desde **Firebase Console > Messaging** y verificar que llega al emulador.
