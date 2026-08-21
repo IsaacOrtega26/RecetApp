@@ -22,6 +22,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import coil.load
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import java.util.Locale
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
@@ -125,7 +131,17 @@ class MainActivity : AppCompatActivity() {
         try {
             mainBinding.bottomNavigation?.setOnItemSelectedListener(navListener)
             mainBinding.fabCreate?.setOnClickListener {
-                startActivity(Intent(this, CreateRecipeActivity::class.java))
+                val options = arrayOf("Nueva Receta", "Nueva Publicación")
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("¿Qué deseas crear?")
+                    .setItems(options) { _, which ->
+                        if (which == 0) {
+                            startActivity(Intent(this, CreateRecipeActivity::class.java))
+                        } else {
+                            startActivity(Intent(this, CreatePostActivity::class.java))
+                        }
+                    }
+                    .show()
             }
         } catch (e: Exception) {
             Log.e("RecetApp", "Error binding navigation", e)
@@ -141,9 +157,10 @@ class MainActivity : AppCompatActivity() {
 
         startRealtimeNotifications()
         startRealtimeRequests()
-        syncFcmToken()
+        // syncFcmToken() // Commented out until google-services.json is added
     }
 
+    /* // Commented out until google-services.json is added
     private fun syncFcmToken() {
         val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
@@ -160,6 +177,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    */
 
     private fun startRealtimeRequests() {
         val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
@@ -203,11 +221,37 @@ class MainActivity : AppCompatActivity() {
         }
         
         ToastManager.showToast(this, message, isLong = true)
+        showSystemNotification("RecetApp", message)
         
         // Si estamos en la pestaña de notificaciones, refrescar la lista
         if (currentViewState == "NOTIF") {
             showNotifications()
         }
+    }
+
+    private fun showSystemNotification(title: String, message: String) {
+        val channelId = "recetapp_general"
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Notificaciones Generales", NotificationManager.IMPORTANCE_DEFAULT)
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE)
+
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), builder.build())
     }
 
     private fun showFeed() {
@@ -381,6 +425,21 @@ class MainActivity : AppCompatActivity() {
                     val intent = Intent(this@MainActivity, ChatActivity::class.java)
                     intent.putExtra("OTHER_USER_ID", n.actorUid)
                     startActivity(intent)
+                } else if (n.tipo == "like" || n.tipo == "comentario") {
+                    // Determinar si el objetoId es receta o post
+                    // Por ahora asumimos según el contexto o buscamos
+                    lifecycleScope.launch {
+                        val recipe = n.objetoId?.let { repository.getRecetaById(it) }
+                        if (recipe != null) {
+                            val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
+                            intent.putExtra("RECIPE_ID", n.objetoId)
+                            startActivity(intent)
+                        } else {
+                            val intent = Intent(this@MainActivity, PostDetailActivity::class.java)
+                            intent.putExtra("POST_ID", n.objetoId)
+                            startActivity(intent)
+                        }
+                    }
                 }
             }
             lifecycleScope.launch {
@@ -393,7 +452,7 @@ class MainActivity : AppCompatActivity() {
         inner class ViewHolder(val binding: ItemCommentBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
-    private fun showComments(recetaId: String, tipo: String = "receta", onCountChanged: (Int) -> Unit) {
+    private fun showComments(recetaId: String, tipo: String = ResourceTypes.RECIPE, onCountChanged: (Int) -> Unit) {
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val b = DialogCommentsBinding.inflate(layoutInflater)
         dialog.setContentView(b.root)
@@ -551,6 +610,46 @@ class MainActivity : AppCompatActivity() {
                     user.fotoUrl?.let { profileBinding.ivAvatar.load(it) }
                     profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
 
+                    profileBinding.tabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+                        override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
+                            if (tab?.position == 1) { // Publicaciones
+                                if (isOwnProfile) {
+                                    startActivity(Intent(this@MainActivity, MyPostsActivity::class.java))
+                                    profileBinding.tabLayout.getTabAt(0)?.select()
+                                } else {
+                                    // Para perfiles ajenos podrías cargar sus posts aquí si quieres
+                                    lifecycleScope.launch {
+                                        val posts = repository.getPublicacionesByAutor(user.uid ?: "")
+                                        // Podrías necesitar un adaptador de posts para el grid o lista
+                                        Toast.makeText(this@MainActivity, "Cargando ${posts.size} publicaciones", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } else {
+                                profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
+                            }
+                        }
+                        override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+                        override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
+                            if (tab?.position == 1 && isOwnProfile) {
+                                startActivity(Intent(this@MainActivity, MyPostsActivity::class.java))
+                            }
+                        }
+                    })
+
+                    // Navegar a lista de seguidores/seguidos
+                    profileBinding.llFollowers.setOnClickListener {
+                        val intent = Intent(this@MainActivity, FollowListActivity::class.java)
+                        intent.putExtra("USER_ID", user.uid)
+                        intent.putExtra("MODE", 0)
+                        startActivity(intent)
+                    }
+                    profileBinding.llFollowing.setOnClickListener {
+                        val intent = Intent(this@MainActivity, FollowListActivity::class.java)
+                        intent.putExtra("USER_ID", user.uid)
+                        intent.putExtra("MODE", 1)
+                        startActivity(intent)
+                    }
+
                     // Lógica de Botón Seguir (perfil ajeno)
                     if (!isOwnProfile) {
                         fun refreshFollowStatus() {
@@ -601,14 +700,16 @@ class MainActivity : AppCompatActivity() {
                         startActivity(intent)
                     }
 
-                    // ADMIN PANEL VISIBILITY
-                    Log.d("RecetApp", "Rol del usuario: ${user.rol}")
-                    if (user.rol.lowercase() == "administrador" || user.rol.lowercase() == "admin") {
+                    // ADMIN PANEL VISIBILITY - Solo visible en el perfil propio si es admin
+                    val sessionUserUid = sessionUser?.id
+                    if (isOwnProfile && (user.rol.lowercase() == "administrador" || user.rol.lowercase() == "admin")) {
                         profileBinding.btnAdminPanel.visibility = View.VISIBLE
                         profileBinding.btnAdminPanel.setOnClickListener {
                             val intent = Intent(this@MainActivity, AdminPanelActivity::class.java)
                             startActivity(intent)
                         }
+                    } else {
+                        profileBinding.btnAdminPanel.visibility = View.GONE
                     }
                 }
             } catch (e: Exception) {
@@ -738,6 +839,21 @@ class MainActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val recipe = recipes[position]
             holder.binding.tvTitle.text = recipe.nombre
+            
+            // Cargar imagen de la receta
+            lifecycleScope.launch {
+                val images = repository.getImagenesReceta(recipe.id ?: "")
+                if (images.isNotEmpty()) {
+                    holder.binding.ivRecipe.load(images[0]) {
+                        crossfade(true)
+                        placeholder(R.drawable.ic_recipe_placeholder)
+                        error(R.drawable.ic_recipe_placeholder)
+                    }
+                } else {
+                    holder.binding.ivRecipe.setImageResource(R.drawable.ic_recipe_placeholder)
+                }
+            }
+
             holder.itemView.setOnClickListener {
                 val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
                 intent.putExtra("RECIPE_ID", recipe.id)
@@ -875,7 +991,7 @@ class MainActivity : AppCompatActivity() {
 
                 lifecycleScope.launch {
                     try {
-                        val type = if (isRecipe) "receta" else "publicacion"
+                        val type = if (isRecipe) ResourceTypes.RECIPE else ResourceTypes.POST
                         repository.toggleLike(currentUid, id ?: "", type)
                         
                         // Sincronizar número real contando directamente en la tabla de likes
@@ -910,7 +1026,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             holder.binding.ivComment.setOnClickListener {
-                showComments(id ?: "", if (isRecipe) "receta" else "publicacion") { newCount ->
+                showComments(id ?: "", if (isRecipe) ResourceTypes.RECIPE else ResourceTypes.POST) { newCount ->
                     holder.binding.tvCommentsCount.text = newCount.coerceAtLeast(0).toString()
                 }
             }
@@ -919,6 +1035,10 @@ class MainActivity : AppCompatActivity() {
                 if (isRecipe) {
                     val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
                     intent.putExtra("RECIPE_ID", id)
+                    startActivity(intent)
+                } else {
+                    val intent = Intent(this@MainActivity, PostDetailActivity::class.java)
+                    intent.putExtra("POST_ID", id)
                     startActivity(intent)
                 }
             }

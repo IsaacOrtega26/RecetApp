@@ -33,6 +33,11 @@ class MessagesActivity : AppCompatActivity() {
         loadConversations()
     }
 
+    override fun onResume() {
+        super.onResume()
+        loadConversations()
+    }
+
     private fun loadConversations() {
         val currentUid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return
         

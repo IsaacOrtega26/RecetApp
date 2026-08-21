@@ -12,10 +12,10 @@ import com.example.recetapp.databinding.ActivityChatBinding
 import com.example.recetapp.databinding.ItemMessageMeBinding
 import com.example.recetapp.databinding.ItemMessageOtherBinding
 import io.github.jan.supabase.auth.auth
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collect
 
 class ChatActivity : AppCompatActivity() {
 
@@ -23,9 +23,7 @@ class ChatActivity : AppCompatActivity() {
     private val repository = SupabaseRepository(SupabaseConfig.client)
     private var otherUserId: String? = null
     private var currentUserId: String? = null
-    private var chatJob: kotlinx.coroutines.Job? = null
-    private val messagesList = mutableListOf<Mensaje>()
-    private lateinit var adapter: MessageAdapter
+    private var adapter: MessageAdapter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,12 +35,29 @@ class ChatActivity : AppCompatActivity() {
 
         binding.toolbar.setNavigationOnClickListener { finish() }
 
+        setupRecyclerView()
         loadOtherUserInfo()
-        loadMessages()
+        loadInitialMessages()
+        startRealtimeListener()
+        checkRecipeShare()
 
         binding.btnSend.setOnClickListener {
             sendMessage()
         }
+    }
+
+    private fun checkRecipeShare() {
+        val recipeId = intent.getStringExtra("RECIPE_ID")
+        val recipeName = intent.getStringExtra("RECIPE_NAME")
+        if (recipeId != null && recipeName != null) {
+            val shareText = "¡Hola! Mira esta receta: $recipeName\n(Enlace: recetapp://recipe/$recipeId)"
+            binding.etMessage.setText(shareText)
+        }
+    }
+
+    private fun setupRecyclerView() {
+        adapter = MessageAdapter(mutableListOf(), currentUserId ?: "")
+        binding.rvMessages.adapter = adapter
     }
 
     private fun loadOtherUserInfo() {
@@ -54,41 +69,28 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadMessages() {
+    private fun loadInitialMessages() {
         val miUid = currentUserId ?: return
         val otroUid = otherUserId ?: return
-        
-        // Configurar adaptador inicial
-        adapter = MessageAdapter(messagesList, miUid)
-        binding.rvMessages.adapter = adapter
-        
         lifecycleScope.launch {
             try {
                 val list = repository.getMensajesConUsuario(miUid, otroUid)
-                messagesList.clear()
-                messagesList.addAll(list)
-                adapter.notifyDataSetChanged()
-                binding.rvMessages.scrollToPosition(messagesList.size - 1)
-                
-                // Iniciar escucha en tiempo real
-                startRealtimeChat(miUid, otroUid)
+                adapter?.updateList(list)
+                binding.rvMessages.scrollToPosition(list.size - 1)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
 
-    private fun startRealtimeChat(miUid: String, otroUid: String) {
-        chatJob?.cancel()
-        chatJob = lifecycleScope.launch {
-            repository.listenToMessages(miUid, otroUid, this).collect { newMsg ->
-                // Evitar duplicados si el mensaje ya se añadió localmente al enviar
-                if (messagesList.none { it.id == newMsg.id && it.id != null }) {
-                    messagesList.add(newMsg)
-                    withContext(Dispatchers.Main) {
-                        adapter.notifyItemInserted(messagesList.size - 1)
-                        binding.rvMessages.scrollToPosition(messagesList.size - 1)
-                    }
+    private fun startRealtimeListener() {
+        val miUid = currentUserId ?: return
+        val otroUid = otherUserId ?: return
+        lifecycleScope.launch {
+            repository.listenToMessages(miUid, otroUid, this).collect { msg ->
+                withContext(Dispatchers.Main) {
+                    adapter?.addMessage(msg)
+                    binding.rvMessages.smoothScrollToPosition(adapter!!.itemCount - 1)
                 }
             }
         }
@@ -100,27 +102,33 @@ class ChatActivity : AppCompatActivity() {
         val content = binding.etMessage.text.toString().trim()
         
         if (content.isNotEmpty()) {
-            binding.btnSend.isEnabled = false
+            binding.etMessage.setText("")
             lifecycleScope.launch {
-                val success = repository.sendMensaje(miUid, otroUid, content)
-                withContext(Dispatchers.Main) {
-                    if (success) {
-                        binding.etMessage.setText("")
-                        // El mensaje aparecerá solo vía Realtime para evitar duplicidad visual
-                    }
-                    binding.btnSend.isEnabled = true
-                }
+                repository.sendMensaje(miUid, otroUid, content)
             }
         }
     }
 
     inner class MessageAdapter(
-        private val list: List<Mensaje>,
+        private val list: MutableList<Mensaje>,
         private val currentUid: String
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         private val TYPE_ME = 1
         private val TYPE_OTHER = 2
+
+        fun updateList(newList: List<Mensaje>) {
+            list.clear()
+            list.addAll(newList)
+            notifyDataSetChanged()
+        }
+
+        fun addMessage(msg: Mensaje) {
+            if (!list.any { it.id == msg.id && it.id != null }) {
+                list.add(msg)
+                notifyItemInserted(list.size - 1)
+            }
+        }
 
         override fun getItemViewType(position: Int): Int {
             return if (list[position].emisorUid == currentUid) TYPE_ME else TYPE_OTHER

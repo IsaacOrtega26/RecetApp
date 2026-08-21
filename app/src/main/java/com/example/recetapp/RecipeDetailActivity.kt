@@ -58,7 +58,7 @@ class RecipeDetailActivity : AppCompatActivity() {
                 R.id.action_report -> {
                     val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return@setOnMenuItemClickListener false
                     lifecycleScope.launch {
-                        val success = repository.reportarRecurso(uid, recipeId ?: "", "receta", "Contenido inapropiado")
+                        val success = repository.reportarRecurso(uid, recipeId ?: "", ResourceTypes.RECIPE, "Contenido inapropiado")
                         if (success) Toast.makeText(this@RecipeDetailActivity, "Reporte enviado", Toast.LENGTH_SHORT).show()
                     }
                     true
@@ -90,6 +90,8 @@ class RecipeDetailActivity : AppCompatActivity() {
         binding.btnSendMessage.setOnClickListener {
             val intent = Intent(this, ChatActivity::class.java)
             intent.putExtra("OTHER_USER_ID", currentRecipe?.autorUid)
+            intent.putExtra("RECIPE_ID", recipeId)
+            intent.putExtra("RECIPE_NAME", currentRecipe?.nombre)
             startActivity(intent)
         }
 
@@ -98,7 +100,7 @@ class RecipeDetailActivity : AppCompatActivity() {
             binding.tvLikes.isEnabled = false
             lifecycleScope.launch {
                 try {
-                    repository.toggleLike(currentUid, recipeId ?: "", "receta")
+                    repository.toggleLike(currentUid, recipeId ?: "", ResourceTypes.RECIPE)
                     
                     // Contar likes directamente para mayor precisión
                     val realCount = repository.getLikeCount(recipeId ?: "")
@@ -120,7 +122,7 @@ class RecipeDetailActivity : AppCompatActivity() {
             val uid = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
             lifecycleScope.launch {
                 try {
-                    repository.toggleSave(uid, recipeId ?: "", "receta")
+                    repository.toggleSave(uid, recipeId ?: "", ResourceTypes.RECIPE)
                     updateSaveUI()
                 } catch (e: Exception) {
                     Log.e("RecetApp", "Error al guardar", e)

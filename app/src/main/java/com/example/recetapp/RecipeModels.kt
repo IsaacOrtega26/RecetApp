@@ -82,11 +82,14 @@ data class Comentario(
 )
 
 @Serializable
-data class Like(
+data class Reporte(
     val id: String? = null,
-    @SerialName("usuario_uid") val usuarioUid: String,
-    @SerialName("recurso_id") val recursoId: String,
-    @SerialName("tipo_recurso") val tipoRecurso: String
+    @SerialName("reportante_uid") val reportanteUid: String,
+    @SerialName("objeto_id") val objetoId: String,
+    @SerialName("tipo_objeto") val tipoObjeto: String, // 'receta', 'publicacion', 'usuario'
+    val motivo: String,
+    val estado: String = "pendiente", // 'pendiente', 'revisado', 'ignorado'
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
 )
 
 @Serializable
@@ -103,7 +106,7 @@ data class Notificacion(
 
 @Serializable
 data class SolicitudSeguimiento(
-    val id: String? = null,
+    @SerialName("id") val id: String? = null,
     @SerialName("solicitante_uid") val solicitanteUid: String,
     @SerialName("destino_uid") val destinoUid: String,
     val estado: String = "pendiente", // 'pendiente', 'aceptada', 'rechazada'
@@ -112,10 +115,18 @@ data class SolicitudSeguimiento(
 
 @Serializable
 data class Mensaje(
-    val id: String? = null,
+    @SerialName("id") val id: String? = null,
     @SerialName("emisor_uid") val emisorUid: String,
     @SerialName("receptor_uid") val receptorUid: String,
     val contenido: String,
     val leido: Boolean = false,
+    @SerialName("fecha_creacion") val fechaCreacion: String? = null
+)
+
+@Serializable
+data class Like(
+    @SerialName("usuario_uid") val usuarioUid: String,
+    @SerialName("recurso_id") val recursoId: String,
+    @SerialName("tipo_recurso") val tipoRecurso: String,
     @SerialName("fecha_creacion") val fechaCreacion: String? = null
 )
