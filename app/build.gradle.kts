@@ -1,7 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     id("org.jetbrains.kotlin.plugin.serialization")
-    alias(libs.plugins.google.services)
+    // alias(libs.plugins.google.services) // Commented out to fix missing google-services.json error
 }
 
 android {
@@ -50,6 +50,7 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:realtime-kt:3.0.1")
     implementation("io.github.jan-tennert.supabase:supabase-kt:3.0.1")
     implementation("io.ktor:ktor-client-android:3.0.1")
+    implementation("io.ktor:ktor-client-okhttp:3.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("io.coil-kt:coil:2.6.0")
 

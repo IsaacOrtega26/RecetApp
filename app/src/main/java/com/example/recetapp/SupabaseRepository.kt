@@ -56,17 +56,17 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             }
             val bucketApi = supabase.storage.from(bucketName)
             
-            Log.d(TAG, "Iniciando subida a bucket: $bucketName, archivo: $fileName")
+            Log.d(TAG, "uploadImage: Iniciando subida a bucket '$bucketName', archivo '$fileName', bytes=${bytes.size}")
             
             // Subida al Storage
             bucketApi.upload(fileName, bytes) { upsert = true }
             
             // Obtención de URL pública
             val url = bucketApi.publicUrl(fileName)
-            Log.d(TAG, "Subida exitosa. URL: $url")
+            Log.d(TAG, "uploadImage: Éxito. URL: $url")
             url
         } catch (e: Exception) {
-            Log.e(TAG, "Error en uploadImage: ${e.message}", e)
+            Log.e(TAG, "uploadImage: ERROR - ${e.message}", e)
             null
         }
     }
@@ -250,7 +250,7 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             val guardados = supabase.from("guardados").select {
                 filter {
                     eq("usuario_uid", usuarioUid)
-                    eq("tipo_recurso", "receta")
+                    eq("tipo_recurso", ResourceTypes.RECIPE)
                 }
             }.decodeList<Map<String, JsonElement>>()
             
@@ -382,10 +382,13 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun insertPublicacion(post: Publicacion): Publicacion? = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "insertPublicacion: Creando post para ${post.autorUid}")
             val res = supabase.from("publicaciones").insert(post) { select() }
-            res.decodeSingle<Publicacion>()
+            val inserted = res.decodeSingle<Publicacion>()
+            Log.d(TAG, "insertPublicacion: Éxito ID=${inserted.id}")
+            inserted
         } catch (e: Exception) {
-            Log.e(TAG, "Error insertPublicacion: ${e.message}")
+            Log.e(TAG, "Error insertPublicacion: ${e.message}", e)
             null
         }
     }
@@ -396,6 +399,8 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                 order("fecha_creacion", Order.DESCENDING)
             }.decodeList<Publicacion>()
             
+            Log.d(TAG, "getFeedPublicaciones: Recuperados ${posts.size} posts")
+            
             // Sincronizar contadores de likes en tiempo real
             posts.map { post ->
                 val realCount = getLikeCount(post.id ?: "")
@@ -404,6 +409,29 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         } catch (e: Exception) {
             Log.e(TAG, "Error getFeedPublicaciones: ${e.message}")
             emptyList()
+        }
+    }
+
+    suspend fun getPublicacionesByAutor(autorUid: String): List<Publicacion> = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("publicaciones").select {
+                filter { eq("autor_uid", autorUid) }
+                order("fecha_creacion", Order.DESCENDING)
+            }.decodeList<Publicacion>()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getPublicacionesByAutor: ${e.message}")
+            emptyList()
+        }
+    }
+
+    suspend fun getPublicacionById(id: String): Publicacion? = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("publicaciones").select {
+                filter { eq("publicacion_id", id) }
+            }.decodeSingleOrNull<Publicacion>()
+        } catch (e: Exception) { 
+            Log.e(TAG, "Error getPublicacionById: ${e.message}")
+            null 
         }
     }
 
@@ -425,8 +453,12 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun insertImagenPublicacion(postId: String, url: String) = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "insertImagenPublicacion: Guardando URL para Post $postId")
             supabase.from("imagenes_publicacion").insert(mapOf("publicacion_id" to postId, "url" to url))
-        } catch (e: Exception) { }
+            Log.d(TAG, "insertImagenPublicacion: Éxito")
+        } catch (e: Exception) { 
+            Log.e(TAG, "insertImagenPublicacion: Error - ${e.message}", e)
+        }
     }
 
     suspend fun getImagenesPublicacion(postId: String): List<String> = withContext(Dispatchers.IO) {
@@ -477,10 +509,15 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                     "tipo_recurso" to tipo
                 ))
                 
-                if (tipo == "receta") {
+                if (tipo == ResourceTypes.RECIPE) {
                     val receta = getRecetaById(recursoId)
                     receta?.let { 
                         crearNotificacion(it.autorUid, usuarioUid, "like", recursoId) 
+                    }
+                } else if (tipo == ResourceTypes.POST) {
+                    val post = getPublicacionById(recursoId)
+                    post?.let {
+                        crearNotificacion(it.autorUid, usuarioUid, "like", recursoId)
                     }
                 }
             } else {
@@ -561,10 +598,15 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             
             // Los contadores ahora se manejan vía Triggers en Supabase
             // Solo enviamos la notificación
-            if (comentario.tipoRecurso == "receta") {
+            if (comentario.tipoRecurso == ResourceTypes.RECIPE) {
                 val receta = getRecetaById(comentario.recursoId)
                 receta?.let { 
                     crearNotificacion(it.autorUid, comentario.autorUid, "comentario", comentario.recursoId) 
+                }
+            } else if (comentario.tipoRecurso == ResourceTypes.POST) {
+                val post = getPublicacionById(comentario.recursoId)
+                post?.let {
+                    crearNotificacion(it.autorUid, comentario.autorUid, "comentario", comentario.recursoId)
                 }
             }
             true
@@ -590,43 +632,66 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun getNotificaciones(destinatarioUid: String): List<Notificacion> = withContext(Dispatchers.IO) {
         try {
-            supabase.from("notificaciones").select {
+            Log.d(TAG, "getNotificaciones: Buscando para $destinatarioUid")
+            val res = supabase.from("notificaciones").select {
                 filter { eq("destinatario_uid", destinatarioUid) }
                 order("fecha_creacion", Order.DESCENDING)
             }.decodeList<Notificacion>()
-        } catch (e: Exception) { emptyList() }
+            Log.d(TAG, "getNotificaciones: Recuperadas ${res.size}")
+            res
+        } catch (e: Exception) { 
+            Log.e(TAG, "getNotificaciones: Error - ${e.message}")
+            emptyList() 
+        }
     }
 
     suspend fun crearNotificacion(destinatarioUid: String, actorUid: String, tipo: String, objetoId: String? = null) = withContext(Dispatchers.IO) {
         try {
-            if (destinatarioUid == actorUid) return@withContext false
-            supabase.from("notificaciones").insert(Notificacion(
-                destinatarioUid = destinatarioUid,
-                actorUid = actorUid,
-                tipo = tipo,
-                objetoId = objetoId
-            ))
+            if (destinatarioUid == actorUid) {
+                Log.d(TAG, "crearNotificacion: Evitando auto-notificación para $actorUid")
+                return@withContext false
+            }
+            Log.d(TAG, "crearNotificacion: Creando '$tipo' para $destinatarioUid de $actorUid")
+            
+            val data = buildJsonObject {
+                put("destinatario_uid", destinatarioUid)
+                put("actor_uid", actorUid)
+                put("tipo", tipo)
+                put("leida", false)
+                objetoId?.let { put("objeto_id", it) }
+            }
+            
+            supabase.from("notificaciones").insert(data)
+            Log.d(TAG, "crearNotificacion: Éxito")
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) {
+            Log.e(TAG, "crearNotificacion: Error - ${e.message}", e)
+            false 
+        }
     }
 
     // --- SOCIAL: REPORTES ---
 
     suspend fun reportarRecurso(reportanteUid: String, objetoId: String, tipoObjeto: String, motivo: String) = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "reportarRecurso: De $reportanteUid para $tipoObjeto:$objetoId")
             supabase.from("reportes").insert(mapOf(
                 "reportante_uid" to reportanteUid,
                 "objeto_id" to objetoId,
                 "tipo_objeto" to tipoObjeto,
                 "motivo" to motivo
             ))
+            Log.d(TAG, "reportarRecurso: Éxito")
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { 
+            Log.e(TAG, "reportarRecurso: Error - ${e.message}", e)
+            false 
+        }
     }
 
-    suspend fun getReportes(): List<JsonElement> = withContext(Dispatchers.IO) {
+    suspend fun getReportes(): List<Reporte> = withContext(Dispatchers.IO) {
         try {
-            supabase.from("reportes").select().decodeList<JsonElement>()
+            supabase.from("reportes").select().decodeList<Reporte>()
         } catch (e: Exception) { emptyList() }
     }
 
@@ -676,6 +741,32 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         } catch (e: Exception) { false }
     }
 
+    suspend fun getFollowers(uid: String): List<Usuario> = withContext(Dispatchers.IO) {
+        try {
+            val res = supabase.from("seguidores").select {
+                filter { eq("seguido_uid", uid) }
+            }.decodeList<Map<String, JsonElement>>()
+            val ids = res.mapNotNull { it["seguidor_uid"]?.jsonPrimitive?.content }
+            if (ids.isEmpty()) return@withContext emptyList()
+            supabase.from("usuarios").select {
+                filter { isIn("uid_usuario", ids) }
+            }.decodeList<Usuario>()
+        } catch (e: Exception) { emptyList() }
+    }
+
+    suspend fun getFollowing(uid: String): List<Usuario> = withContext(Dispatchers.IO) {
+        try {
+            val res = supabase.from("seguidores").select {
+                filter { eq("seguidor_uid", uid) }
+            }.decodeList<Map<String, JsonElement>>()
+            val ids = res.mapNotNull { it["seguido_uid"]?.jsonPrimitive?.content }
+            if (ids.isEmpty()) return@withContext emptyList()
+            supabase.from("usuarios").select {
+                filter { isIn("uid_usuario", ids) }
+            }.decodeList<Usuario>()
+        } catch (e: Exception) { emptyList() }
+    }
+
     suspend fun getEstadoSeguimiento(followerUid: String, followedUid: String): String = withContext(Dispatchers.IO) {
         try {
             if (isFollowing(followerUid, followedUid)) return@withContext "siguiendo"
@@ -710,25 +801,33 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun aceptarSolicitud(solicitudId: String, seguidorUid: String, seguidoUid: String) = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Aceptando solicitud $solicitudId: $seguidorUid -> $seguidoUid")
+            Log.d(TAG, "aceptarSolicitud: Iniciando. ID=$solicitudId, Seguidor=$seguidorUid, Seguido=$seguidoUid")
             
             // 1. Crear el vínculo en 'seguidores'
-            // Usamos upsert para evitar errores si ya existe
-            supabase.from("seguidores").upsert(mapOf(
+            val followData = mapOf(
                 "seguidor_uid" to seguidorUid,
                 "seguido_uid" to seguidoUid
-            ))
+            )
+            Log.d(TAG, "aceptarSolicitud: Insertando en seguidores: $followData")
+            supabase.from("seguidores").upsert(followData) {
+                onConflict = "seguidor_uid, seguido_uid"
+            }
 
             // 2. Marcar solicitud como aceptada
-            supabase.from("solicitudes_seguimiento").update(mapOf("estado" to "aceptada")) {
-                filter { eq("id", solicitudId) }
+            val idFilter = solicitudId.toLongOrNull() ?: solicitudId
+            Log.d(TAG, "aceptarSolicitud: Actualizando solicitud $solicitudId (filter=$idFilter)")
+            
+            val updateRes = supabase.from("solicitudes_seguimiento").update(mapOf("estado" to "aceptada")) {
+                filter { eq("id", idFilter) }
             }
+            Log.d(TAG, "aceptarSolicitud: Update realizado")
 
             // 3. Notificar al nuevo seguidor
             crearNotificacion(seguidorUid, seguidoUid, "seguidor")
+            Log.d(TAG, "aceptarSolicitud: Éxito total")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error aceptarSolicitud: ${e.message}", e)
+            Log.e(TAG, "aceptarSolicitud: FALLO - ${e.message}", e)
             false
         }
     }
@@ -753,17 +852,38 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             table = "notificaciones"
         }.mapNotNull { action ->
             try {
-                action.decodeRecord<Notificacion>().takeIf { it.destinatarioUid == uid }
+                // A veces el registro llega demasiado rápido y no se ha guardado del todo en la BD
+                // o queremos asegurar que es para nosotros.
+                val record = action.decodeRecord<Notificacion>()
+                if (record.destinatarioUid == uid) {
+                    // Refrescamos desde la BD para asegurar que tenemos el objeto completo
+                    getNotificacionCompleta(record.id ?: "")
+                } else null
             } catch (e: Exception) {
                 null
             }
         }
         
         scope.launch {
-            channel.subscribe()
+            try {
+                channel.subscribe()
+                Log.d(TAG, "Realtime: Suscrito a notificaciones para $uid")
+            } catch (e: Exception) {
+                Log.e(TAG, "Realtime: Error al suscribir notificaciones: ${e.message}")
+            }
         }
         
         return flow
+    }
+
+    private suspend fun getNotificacionCompleta(id: String): Notificacion? = withContext(Dispatchers.IO) {
+        try {
+            // Un pequeño delay para dar tiempo a que se asiente el registro en la BD
+            kotlinx.coroutines.delay(500)
+            supabase.from("notificaciones").select {
+                filter { eq("notificacion_id", id) }
+            }.decodeSingleOrNull<Notificacion>()
+        } catch (e: Exception) { null }
     }
 
     suspend fun listenToAllMessages(miUid: String, scope: CoroutineScope): Flow<Mensaje> {
@@ -890,8 +1010,8 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                     eq("usuario_uid", usuarioUid)
                     eq("recurso_id", recursoId)
                 }
-            }
-            if (response.data == "[]") {
+            }.decodeList<JsonElement>()
+            if (response.isEmpty()) {
                 supabase.from("guardados").insert(mapOf(
                     "usuario_uid" to usuarioUid,
                     "recurso_id" to recursoId,
@@ -915,8 +1035,8 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                     eq("usuario_uid", usuarioUid)
                     eq("recurso_id", recursoId)
                 }
-            }
-            res.data != "[]"
+            }.decodeList<JsonElement>()
+            res.isNotEmpty()
         } catch (e: Exception) { false }
     }
 
