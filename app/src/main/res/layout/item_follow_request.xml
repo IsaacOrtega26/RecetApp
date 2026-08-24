@@ -48,15 +48,17 @@
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:layout_marginEnd="4dp"
-        app:icon="@android:drawable/ic_menu_close_clear_cancel"
-        app:iconTint="@color/text_hint" />
+        app:backgroundTint="@color/text_hint"
+        app:icon="@drawable/ic_minus"
+        app:iconTint="@color/white" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnAccept"
         style="@style/Widget.Material3.Button.IconButton"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        app:icon="@android:drawable/ic_menu_send"
-        app:iconTint="@color/orange_primary" />
+        app:backgroundTint="@color/orange_primary"
+        app:icon="@drawable/ic_plus"
+        app:iconTint="@color/white" />
 
 </LinearLayout>

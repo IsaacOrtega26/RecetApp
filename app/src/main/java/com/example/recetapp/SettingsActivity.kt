@@ -7,6 +7,9 @@ import androidx.lifecycle.lifecycleScope
 import com.example.recetapp.databinding.ActivitySettingsBinding
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -15,8 +18,15 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top + 60, systemBars.right, 0)
+            insets
+        }
 
         binding.toolbar.setNavigationOnClickListener { finish() }
 

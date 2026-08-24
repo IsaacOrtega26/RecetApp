@@ -12,6 +12,9 @@ import com.example.recetapp.databinding.ItemRecipeGridBinding
 import com.google.android.material.tabs.TabLayout
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MyRecipesActivity : AppCompatActivity() {
 
@@ -21,8 +24,15 @@ class MyRecipesActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         binding = ActivityMyRecipesBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top + 60, systemBars.right, 0)
+            insets
+        }
 
         currentUserId = SupabaseConfig.client.auth.currentSessionOrNull()?.user?.id
 

@@ -57,7 +57,6 @@
         <activity
             android:name=".ChatActivity"
             android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".CreatePostActivity" />
         <activity android:name=".FollowListActivity" />
         <activity android:name=".PostDetailActivity" />
 

@@ -109,7 +109,7 @@ data class SolicitudSeguimiento(
     @SerialName("id") val id: String? = null,
     @SerialName("solicitante_uid") val solicitanteUid: String,
     @SerialName("destino_uid") val destinoUid: String,
-    val estado: String = "pendiente", // 'pendiente', 'aceptada', 'rechazada'
+    val estado: String = "pendiente", // 'pendiente', 'aceptado', 'rechazado'
     @SerialName("fecha_creacion") val fechaCreacion: String? = null
 )
 

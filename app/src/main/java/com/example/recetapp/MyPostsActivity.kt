@@ -16,6 +16,9 @@ import com.example.recetapp.databinding.ActivityMyPostsBinding
 import com.example.recetapp.databinding.ItemPostManageBinding
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MyPostsActivity : AppCompatActivity() {
 
@@ -25,13 +28,17 @@ class MyPostsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         binding = ActivityMyPostsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.toolbar.setNavigationOnClickListener { finish() }
-        binding.btnAddPost.setOnClickListener {
-            startActivity(Intent(this, CreatePostActivity::class.java))
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top + 60, systemBars.right, 0)
+            insets
         }
+
+        binding.toolbar.setNavigationOnClickListener { finish() }
 
         binding.swipeRefresh.setOnRefreshListener { loadPosts() }
 

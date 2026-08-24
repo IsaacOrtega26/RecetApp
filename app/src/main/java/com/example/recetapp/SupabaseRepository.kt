@@ -75,9 +75,24 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun getUsuarioByUid(uid: String): Usuario? = withContext(Dispatchers.IO) {
         try {
-            supabase.from("usuarios").select { 
+            Log.d(TAG, "getUsuarioByUid: Buscando $uid")
+            val user = supabase.from("usuarios").select { 
                 filter { eq("uid_usuario", uid) } 
-            }.decodeSingleOrNull<Usuario>()
+            }.decodeSingleOrNull<Usuario>() ?: return@withContext null
+            
+            // Recuento en tiempo real para evitar fallos de sincronización por RLS
+            val followersCount = supabase.from("seguidores").select {
+                filter { eq("seguido_uid", uid) }
+                count(Count.EXACT)
+            }.countOrNull()?.toInt() ?: 0
+            
+            val followingCount = supabase.from("seguidores").select {
+                filter { eq("seguidor_uid", uid) }
+                count(Count.EXACT)
+            }.countOrNull()?.toInt() ?: 0
+            
+            Log.d(TAG, "getUsuarioByUid: Resultado=${user.nombreUsuario}, followers=$followersCount, following=$followingCount")
+            user.copy(totalSeguidores = followersCount, totalSeguidos = followingCount)
         } catch (e: Exception) { 
             Log.e(TAG, "Error getUsuarioByUid: ${e.message}")
             null 
@@ -86,9 +101,22 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun getUsuarioByEmail(email: String): Usuario? = withContext(Dispatchers.IO) {
         try {
-            supabase.from("usuarios").select { 
+            val user = supabase.from("usuarios").select { 
                 filter { eq("email", email) } 
-            }.decodeSingleOrNull<Usuario>()
+            }.decodeSingleOrNull<Usuario>() ?: return@withContext null
+            
+            // Recuento en tiempo real
+            val followersCount = supabase.from("seguidores").select {
+                filter { eq("seguido_uid", user.uid ?: "") }
+                count(Count.EXACT)
+            }.countOrNull()?.toInt() ?: 0
+            
+            val followingCount = supabase.from("seguidores").select {
+                filter { eq("seguidor_uid", user.uid ?: "") }
+                count(Count.EXACT)
+            }.countOrNull()?.toInt() ?: 0
+            
+            user.copy(totalSeguidores = followersCount, totalSeguidos = followingCount)
         } catch (e: Exception) { null }
     }
 
@@ -665,7 +693,8 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             Log.d(TAG, "crearNotificacion: Éxito")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "crearNotificacion: Error - ${e.message}", e)
+            // Un error en notificaciones (ej. RLS) no debe bloquear la acción principal (ej. seguir)
+            Log.w(TAG, "crearNotificacion: Aviso - No se pudo crear notif: ${e.message}")
             false 
         }
     }
@@ -697,24 +726,71 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     // --- SOCIAL: SEGUIDORES ---
 
-    suspend fun followUser(followerUid: String, followedUid: String) = withContext(Dispatchers.IO) {
+    private suspend fun syncFollowCounters(uid: String) = withContext(Dispatchers.IO) {
+        try {
+            // Recuento real de seguidores (quienes me siguen)
+            val followersRes = supabase.from("seguidores").select {
+                filter { eq("seguido_uid", uid) }
+                count(Count.EXACT)
+            }
+            val followerCount = followersRes.countOrNull()?.toInt() ?: 0
+
+            // Recuento real de seguidos (a quienes sigo)
+            val followingRes = supabase.from("seguidores").select {
+                filter { eq("seguidor_uid", uid) }
+                count(Count.EXACT)
+            }
+            val followingCount = followingRes.countOrNull()?.toInt() ?: 0
+
+            // Sincronizar tabla de usuarios con datos reales
+            supabase.from("usuarios").update(mapOf(
+                "total_seguidores" to followerCount,
+                "total_seguidos" to followingCount
+            )) {
+                filter { eq("uid_usuario", uid) }
+            }
+            Log.d(TAG, "syncFollowCounters: UID=$uid, seguidores=$followerCount, seguidos=$followingCount")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncFollowCounters: ${e.message}")
+        }
+    }
+
+    suspend fun followUser(followerUid: String, followedUid: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val followedUser = getUsuarioByUid(followedUid)
+            Log.d(TAG, "followUser: follower=$followerUid, followed=$followedUid, isPublic=${followedUser?.esPublico}")
+            
             if (followedUser?.esPublico == false) {
-                supabase.from("solicitudes_seguimiento").insert(mapOf(
+                // Perfil privado: insertar o actualizar solicitud
+                Log.d(TAG, "followUser: Perfil privado, enviando solicitud...")
+                supabase.from("solicitudes_seguimiento").upsert(mapOf(
                     "solicitante_uid" to followerUid,
-                    "destino_uid" to followedUid
-                ))
+                    "destino_uid" to followedUid,
+                    "estado" to "pendiente"
+                )) {
+                    onConflict = "solicitante_uid, destino_uid"
+                }
                 crearNotificacion(followedUid, followerUid, "solicitud")
+                Log.d(TAG, "followUser: Solicitud enviada correctamente")
+                true
             } else {
+                // Perfil público: seguimiento directo
+                Log.d(TAG, "followUser: Perfil público, siguiendo directamente...")
                 supabase.from("seguidores").insert(mapOf(
                     "seguidor_uid" to followerUid,
                     "seguido_uid" to followedUid
                 ))
                 crearNotificacion(followedUid, followerUid, "seguidor")
+                
+                // Incrementar contadores (Sincronización real)
+                syncFollowCounters(followedUid)
+                syncFollowCounters(followerUid)
+                Log.d(TAG, "followUser: Seguimiento directo completado y sincronizado")
+                true
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error followUser: ${e.message}")
+            Log.e(TAG, "Error followUser: ${e.message}", e)
+            false
         }
     }
 
@@ -726,6 +802,10 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                     eq("seguido_uid", followedUid)
                 }
             }
+            
+            // Decrementar contadores (Sincronización real)
+            syncFollowCounters(followedUid)
+            syncFollowCounters(followerUid)
         } catch (e: Exception) { }
     }
 
@@ -808,23 +888,30 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
                 "seguidor_uid" to seguidorUid,
                 "seguido_uid" to seguidoUid
             )
-            Log.d(TAG, "aceptarSolicitud: Insertando en seguidores: $followData")
-            supabase.from("seguidores").upsert(followData) {
-                onConflict = "seguidor_uid, seguido_uid"
+            
+            try {
+                supabase.from("seguidores").insert(followData)
+            } catch (e: Exception) {
+                Log.d(TAG, "aceptarSolicitud: Vínculo ya existía o error menor: ${e.message}")
             }
 
-            // 2. Marcar solicitud como aceptada
-            val idFilter = solicitudId.toLongOrNull() ?: solicitudId
-            Log.d(TAG, "aceptarSolicitud: Actualizando solicitud $solicitudId (filter=$idFilter)")
-            
-            val updateRes = supabase.from("solicitudes_seguimiento").update(mapOf("estado" to "aceptada")) {
+            // 2. Eliminar la solicitud ya procesada usando su ID exacto
+            val idFilter: Any = solicitudId.toLongOrNull() ?: solicitudId
+            supabase.from("solicitudes_seguimiento").delete {
                 filter { eq("id", idFilter) }
             }
-            Log.d(TAG, "aceptarSolicitud: Update realizado")
 
-            // 3. Notificar al nuevo seguidor
-            crearNotificacion(seguidorUid, seguidoUid, "seguidor")
-            Log.d(TAG, "aceptarSolicitud: Éxito total")
+            // 3. Sincronizar contadores (Recuento real para ambos)
+            syncFollowCounters(seguidoUid)
+            syncFollowCounters(seguidorUid)
+
+            // 4. Notificaciones Estilo Instagram
+            // Notificar al que envió la solicitud que ha sido aceptado
+            crearNotificacion(seguidorUid, seguidoUid, "solicitud_aceptada")
+            // Notificar al dueño del perfil que tiene un nuevo seguidor
+            crearNotificacion(seguidoUid, seguidorUid, "seguidor")
+            
+            Log.d(TAG, "aceptarSolicitud: Éxito (Solicitud eliminada y vínculo creado)")
             true
         } catch (e: Exception) {
             Log.e(TAG, "aceptarSolicitud: FALLO - ${e.message}", e)
@@ -834,8 +921,10 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun rechazarSolicitud(solicitudId: String) = withContext(Dispatchers.IO) {
         try {
-            supabase.from("solicitudes_seguimiento").update(mapOf("estado" to "rechazada")) {
-                filter { eq("id", solicitudId) }
+            // Eliminamos la solicitud usando su ID exacto
+            val idFilter: Any = solicitudId.toLongOrNull() ?: solicitudId
+            supabase.from("solicitudes_seguimiento").delete {
+                filter { eq("id", idFilter) }
             }
             true
         } catch (e: Exception) {
@@ -852,12 +941,9 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             table = "notificaciones"
         }.mapNotNull { action ->
             try {
-                // A veces el registro llega demasiado rápido y no se ha guardado del todo en la BD
-                // o queremos asegurar que es para nosotros.
                 val record = action.decodeRecord<Notificacion>()
                 if (record.destinatarioUid == uid) {
-                    // Refrescamos desde la BD para asegurar que tenemos el objeto completo
-                    getNotificacionCompleta(record.id ?: "")
+                    record
                 } else null
             } catch (e: Exception) {
                 null
@@ -876,15 +962,7 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         return flow
     }
 
-    private suspend fun getNotificacionCompleta(id: String): Notificacion? = withContext(Dispatchers.IO) {
-        try {
-            // Un pequeño delay para dar tiempo a que se asiente el registro en la BD
-            kotlinx.coroutines.delay(500)
-            supabase.from("notificaciones").select {
-                filter { eq("notificacion_id", id) }
-            }.decodeSingleOrNull<Notificacion>()
-        } catch (e: Exception) { null }
-    }
+
 
     suspend fun listenToAllMessages(miUid: String, scope: CoroutineScope): Flow<Mensaje> {
         val channel = supabase.realtime.channel("messages:all:$miUid")

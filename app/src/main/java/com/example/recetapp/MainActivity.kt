@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.recetapp.databinding.*
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.realtime.realtime
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -56,11 +57,38 @@ class MainActivity : AppCompatActivity() {
         mainBinding.contentFrame.findViewById<com.google.android.material.imageview.ShapeableImageView>(R.id.ivEditAvatar)?.setImageURI(uri)
     }
 
+    private val requestNotificationPermission = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Log.d("RecetApp", "Permiso de notificaciones concedido")
+        } else {
+            Log.w("RecetApp", "Permiso de notificaciones denegado")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         checkSession()
         setupBackNavigation()
+        checkNotificationPermission()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Si el usuario está viendo su propio perfil, refrescar datos para actualizar contadores
+        if (currentViewState == "PROFILE") {
+            showProfile(supabase.auth.currentSessionOrNull()?.user?.id)
+        }
+    }
+
+    private fun checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     private fun setupBackNavigation() {
@@ -131,17 +159,17 @@ class MainActivity : AppCompatActivity() {
         try {
             mainBinding.bottomNavigation?.setOnItemSelectedListener(navListener)
             mainBinding.fabCreate?.setOnClickListener {
-                val options = arrayOf("Nueva Receta", "Nueva Publicación")
-                androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("¿Qué deseas crear?")
-                    .setItems(options) { _, which ->
-                        if (which == 0) {
-                            startActivity(Intent(this, CreateRecipeActivity::class.java))
-                        } else {
-                            startActivity(Intent(this, CreatePostActivity::class.java))
-                        }
-                    }
-                    .show()
+                startActivity(Intent(this, CreateRecipeActivity::class.java))
+            }
+            
+            // Conectar a Realtime
+            lifecycleScope.launch {
+                try {
+                    supabase.realtime.connect()
+                    Log.d("RecetApp", "Realtime conectado")
+                } catch (e: Exception) {
+                    Log.e("RecetApp", "Error al conectar Realtime", e)
+                }
             }
         } catch (e: Exception) {
             Log.e("RecetApp", "Error binding navigation", e)
@@ -198,14 +226,15 @@ class MainActivity : AppCompatActivity() {
         notificationJob?.cancel()
         notificationJob = lifecycleScope.launch {
             try {
-                Log.d("RecetApp", "Iniciando escucha de notificaciones en tiempo real...")
+                Log.d("RecetApp", "Iniciando escucha de notificaciones en tiempo real para $uid...")
                 repository.listenToNotifications(uid, this).collect { notif ->
+                    Log.d("RecetApp", "Notificación recibida: ${notif.tipo}")
                     withContext(Dispatchers.Main) {
                         showNotificationAlert(notif)
                     }
                 }
             } catch (e: Exception) {
-                Log.e("RecetApp", "Error en listener de tiempo real", e)
+                Log.e("RecetApp", "Error en listener de notificaciones", e)
             }
         }
     }
@@ -216,6 +245,7 @@ class MainActivity : AppCompatActivity() {
             "comentario" -> "Tienes un nuevo comentario"
             "seguidor" -> "¡Tienes un nuevo seguidor!"
             "solicitud" -> "Has recibido una solicitud de seguimiento"
+            "solicitud_aceptada" -> "Tu solicitud de seguimiento fue aceptada"
             "mensaje" -> "Nuevo mensaje recibido"
             else -> "Nueva actividad en tu cuenta"
         }
@@ -378,16 +408,54 @@ class MainActivity : AppCompatActivity() {
     }
 
     inner class UserSearchAdapter(private var users: List<Usuario>) : RecyclerView.Adapter<UserSearchAdapter.ViewHolder>() {
+        
+        private val followingIds = mutableSetOf<String>()
+
         fun updateUsers(newUsers: List<Usuario>) {
             users = newUsers
+            fetchFollowing()
             notifyDataSetChanged()
         }
+
+        private fun fetchFollowing() {
+            val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
+            lifecycleScope.launch {
+                val following = repository.getFollowing(currentUid)
+                followingIds.clear()
+                followingIds.addAll(following.mapNotNull { it.uid })
+                notifyDataSetChanged()
+            }
+        }
+
         override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemUserSearchBinding.inflate(layoutInflater, p, false))
         override fun onBindViewHolder(h: ViewHolder, pos: Int) {
             val user = users[pos]
+            val currentUid = supabase.auth.currentSessionOrNull()?.user?.id
+            
             h.binding.tvName.text = user.nombreCompleto ?: user.nombreUsuario
             h.binding.tvHandle.text = "@${user.nombreUsuario}"
             user.fotoUrl?.let { h.binding.ivAvatar.load(it) }
+
+            // Mostrar botón Seguir si no soy yo
+            if (user.uid != currentUid) {
+                val isFollowing = followingIds.contains(user.uid)
+                h.binding.btnUnfollow.visibility = View.VISIBLE
+                h.binding.btnUnfollow.text = if (isFollowing) "Siguiendo" else "Seguir"
+                h.binding.btnUnfollow.alpha = if (isFollowing) 0.6f else 1.0f
+                h.binding.btnUnfollow.isEnabled = !isFollowing
+                
+                h.binding.btnUnfollow.setOnClickListener {
+                    if (!isFollowing) {
+                        lifecycleScope.launch {
+                            val success = repository.followUser(currentUid ?: "", user.uid ?: "")
+                            if (success) fetchFollowing()
+                        }
+                    }
+                }
+            } else {
+                h.binding.btnUnfollow.visibility = View.GONE
+            }
+
             h.itemView.setOnClickListener { showProfile(user.uid) }
         }
         override fun getItemCount() = users.size
@@ -417,6 +485,7 @@ class MainActivity : AppCompatActivity() {
                 "seguidor" -> "empezó a seguirte"
                 "comentario" -> "comentó tu receta"
                 "solicitud" -> "quiere seguirte"
+                "solicitud_aceptada" -> "aceptó tu solicitud de seguimiento"
                 else -> "interactuó contigo"
             }
             h.binding.tvContent.text = text
@@ -679,7 +748,10 @@ class MainActivity : AppCompatActivity() {
                                 if (state == "siguiendo") {
                                     repository.unfollowUser(sessionUser?.id ?: "", user.uid ?: "")
                                 } else if (state == "ninguno") {
-                                    repository.followUser(sessionUser?.id ?: "", user.uid ?: "")
+                                    val success = repository.followUser(sessionUser?.id ?: "", user.uid ?: "")
+                                    if (!success) {
+                                        Toast.makeText(this@MainActivity, "Error al enviar solicitud", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                                 refreshFollowStatus()
                             }
@@ -733,7 +805,12 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 val requests = repository.getSolicitudesPendientes(uid)
                 b.tvEmptyRequests.visibility = if (requests.isEmpty()) View.VISIBLE else View.GONE
-                b.rvFollowRequests.adapter = FollowRequestAdapter(requests) { loadRequests() }
+                // Usamos una lista mutable para el adaptador
+                b.rvFollowRequests.adapter = FollowRequestAdapter(requests.toMutableList()) { 
+                    loadRequests()
+                    // Refrescar perfil para actualizar contadores
+                    if (currentViewState == "PROFILE") showProfile(uid)
+                }
             }
         }
 
@@ -742,7 +819,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     inner class FollowRequestAdapter(
-        private val list: List<SolicitudSeguimiento>,
+        private val list: MutableList<SolicitudSeguimiento>,
         private val onHandled: () -> Unit
     ) : RecyclerView.Adapter<FollowRequestAdapter.ViewHolder>() {
         override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemFollowRequestBinding.inflate(layoutInflater, p, false))
@@ -756,18 +833,43 @@ class MainActivity : AppCompatActivity() {
             }
             h.binding.btnAccept.setOnClickListener {
                 val solicitudId = item.id ?: return@setOnClickListener
+                
+                // IU OPTIMISTA: Eliminar de la lista local inmediatamente
+                val currentPos = h.adapterPosition
+                if (currentPos != RecyclerView.NO_POSITION) {
+                    list.removeAt(currentPos)
+                    notifyItemRemoved(currentPos)
+                }
+
                 lifecycleScope.launch {
                     val success = repository.aceptarSolicitud(solicitudId, item.solicitanteUid, item.destinoUid)
-                    if (success) onHandled()
-                    else Toast.makeText(this@MainActivity, "Error al aceptar la solicitud", Toast.LENGTH_SHORT).show()
+                    if (!success) {
+                        // Si falla, recargar la lista real (el diálogo se mantiene abierto)
+                        onHandled()
+                        Toast.makeText(this@MainActivity, "Error al aceptar la solicitud", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Sincronizar contadores en segundo plano
+                        onHandled()
+                    }
                 }
             }
             h.binding.btnReject.setOnClickListener {
                 val solicitudId = item.id ?: return@setOnClickListener
+                // IU OPTIMISTA
+                val currentPos = h.adapterPosition
+                if (currentPos != RecyclerView.NO_POSITION) {
+                    list.removeAt(currentPos)
+                    notifyItemRemoved(currentPos)
+                }
+
                 lifecycleScope.launch {
                     val success = repository.rechazarSolicitud(solicitudId)
-                    if (success) onHandled()
-                    else Toast.makeText(this@MainActivity, "Error al rechazar la solicitud", Toast.LENGTH_SHORT).show()
+                    if (!success) {
+                        onHandled()
+                        Toast.makeText(this@MainActivity, "Error al rechazar la solicitud", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onHandled()
+                    }
                 }
             }
         }

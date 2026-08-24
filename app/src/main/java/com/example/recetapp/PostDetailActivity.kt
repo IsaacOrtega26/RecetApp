@@ -8,6 +8,9 @@ import coil.load
 import com.example.recetapp.databinding.ActivityPostDetailBinding
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class PostDetailActivity : AppCompatActivity() {
 
@@ -17,8 +20,15 @@ class PostDetailActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         binding = ActivityPostDetailBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top + 60, systemBars.right, 0)
+            insets
+        }
 
         postId = intent.getStringExtra("POST_ID")
         binding.toolbar.setNavigationOnClickListener { finish() }

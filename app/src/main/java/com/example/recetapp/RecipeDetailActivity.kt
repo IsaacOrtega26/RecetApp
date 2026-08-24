@@ -18,6 +18,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import coil.load
 import io.github.jan.supabase.auth.auth
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class RecipeDetailActivity : AppCompatActivity() {
 
@@ -29,8 +32,15 @@ class RecipeDetailActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         binding = ActivityRecipeDetailBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top + 60, systemBars.right, 0)
+            insets
+        }
 
         recipeId = intent.getStringExtra("RECIPE_ID")
         binding.toolbar.setNavigationOnClickListener { finish() }
@@ -249,7 +259,10 @@ class RecipeDetailActivity : AppCompatActivity() {
                 if (followState == "siguiendo") {
                     repository.unfollowUser(currentUid, authorUid)
                 } else if (followState == "ninguno") {
-                    repository.followUser(currentUid, authorUid)
+                    val success = repository.followUser(currentUid, authorUid)
+                    if (!success) {
+                        Toast.makeText(this@RecipeDetailActivity, "Error al enviar solicitud", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 followState = repository.getEstadoSeguimiento(currentUid, authorUid)
                 updateFollowButton()
