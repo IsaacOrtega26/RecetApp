@@ -302,16 +302,12 @@ class MainActivity : AppCompatActivity() {
                     val isFollowingTab = feedBinding.tabLayoutFeed.selectedTabPosition == 1
                     
                     val allRecipes = repository.getAllRecetas().filter { it.visibilidad == "publica" }
-                    val allPosts = repository.getFeedPublicaciones().filter { it.visibilidad == "publica" }
                     
-                    // Combinamos ambos contenidos
-                    val combined: List<Any> = (allRecipes + allPosts).sortedByDescending { 
-                        if (it is Receta) it.fechaCreacion else (it as Publicacion).fechaCreacion 
-                    }
+                    val combined: List<Any> = allRecipes.sortedByDescending { it.fechaCreacion }
                     
                     val filtered = if (isFollowingTab) {
                         combined.filter { 
-                            val autorId = if (it is Receta) it.autorUid else (it as Publicacion).autorUid
+                            val autorId = (it as Receta).autorUid
                             repository.isFollowing(currentUid, autorId) 
                         }
                     } else {
@@ -468,46 +464,67 @@ class MainActivity : AppCompatActivity() {
         val notifBinding = ViewNotificationsBinding.inflate(layoutInflater, mainBinding.contentFrame, true)
 
         notifBinding.btnBackFromNotif.setOnClickListener { showFeed() }
+        notifBinding.rvNotifications.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
         lifecycleScope.launch {
-            val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
-            val list = repository.getNotificaciones(currentUid)
-            notifBinding.rvNotifications.adapter = NotificationAdapter(list)
+            try {
+                val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
+                val list = repository.getNotificaciones(currentUid)
+                
+                notifBinding.tvEmptyNotif.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+                notifBinding.rvNotifications.adapter = NotificationAdapter(list)
+            } catch (e: Exception) {
+                Log.e("RecetApp", "Error al mostrar notificaciones", e)
+            }
         }
     }
 
     inner class NotificationAdapter(private val list: List<Notificacion>) : RecyclerView.Adapter<NotificationAdapter.ViewHolder>() {
-        override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemCommentBinding.inflate(layoutInflater, p, false)) // Reusamos diseño similar
+        override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(ItemCommentBinding.inflate(layoutInflater, p, false))
         override fun onBindViewHolder(h: ViewHolder, pos: Int) {
             val n = list[pos]
+            
+            // Ocultar botones de comentarios en el diseño reutilizado
+            h.binding.btnDeleteComment.visibility = View.GONE
+            h.binding.btnReportComment.visibility = View.GONE
+            
             val text = when(n.tipo) {
                 "like" -> "le dio me gusta a tu receta"
                 "seguidor" -> "empezó a seguirte"
                 "comentario" -> "comentó tu receta"
                 "solicitud" -> "quiere seguirte"
                 "solicitud_aceptada" -> "aceptó tu solicitud de seguimiento"
+                "mensaje" -> "te envió un mensaje"
                 else -> "interactuó contigo"
             }
             h.binding.tvContent.text = text
+            
             h.itemView.setOnClickListener {
-                if (n.tipo == "mensaje") {
-                    val intent = Intent(this@MainActivity, ChatActivity::class.java)
-                    intent.putExtra("OTHER_USER_ID", n.actorUid)
-                    startActivity(intent)
-                } else if (n.tipo == "like" || n.tipo == "comentario") {
-                    // Determinar si el objetoId es receta o post
-                    // Por ahora asumimos según el contexto o buscamos
-                    lifecycleScope.launch {
-                        val recipe = n.objetoId?.let { repository.getRecetaById(it) }
-                        if (recipe != null) {
-                            val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
-                            intent.putExtra("RECIPE_ID", n.objetoId)
-                            startActivity(intent)
-                        } else {
-                            val intent = Intent(this@MainActivity, PostDetailActivity::class.java)
-                            intent.putExtra("POST_ID", n.objetoId)
-                            startActivity(intent)
+                when (n.tipo) {
+                    "mensaje" -> {
+                        val intent = Intent(this@MainActivity, ChatActivity::class.java)
+                        intent.putExtra("OTHER_USER_ID", n.actorUid)
+                        startActivity(intent)
+                    }
+                    "like", "comentario" -> {
+                        lifecycleScope.launch {
+                            val recipe = n.objetoId?.let { repository.getRecetaById(it) }
+                            if (recipe != null) {
+                                val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
+                                intent.putExtra("RECIPE_ID", n.objetoId)
+                                startActivity(intent)
+                            } else {
+                                val intent = Intent(this@MainActivity, PostDetailActivity::class.java)
+                                intent.putExtra("POST_ID", n.objetoId)
+                                startActivity(intent)
+                            }
                         }
+                    }
+                    "seguidor", "solicitud_aceptada" -> {
+                        showProfile(n.actorUid)
+                    }
+                    "solicitud" -> {
+                        showProfile(supabase.auth.currentSessionOrNull()?.user?.id)
                     }
                 }
             }
@@ -584,6 +601,7 @@ class MainActivity : AppCompatActivity() {
             val currentUid = supabase.auth.currentSessionOrNull()?.user?.id
             if (item.autorUid == currentUid) {
                 h.binding.btnDeleteComment.visibility = View.VISIBLE
+                h.binding.btnReportComment.visibility = View.GONE
                 h.binding.btnDeleteComment.setOnClickListener {
                     android.app.AlertDialog.Builder(this@MainActivity)
                         .setTitle("Eliminar comentario")
@@ -606,7 +624,29 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 h.binding.btnDeleteComment.visibility = View.GONE
-                h.binding.btnDeleteComment.setOnClickListener(null)
+                h.binding.btnReportComment.visibility = View.VISIBLE
+                h.binding.btnReportComment.setOnClickListener {
+                    android.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Reportar comentario")
+                        .setMessage("¿Deseas reportar este comentario por contenido inapropiado?")
+                        .setPositiveButton("Reportar") { _, _ ->
+                            lifecycleScope.launch {
+                                val success = repository.reportarRecurso(
+                                    currentUid ?: "",
+                                    item.id ?: "",
+                                    ResourceTypes.COMMENT,
+                                    "Comentario inapropiado"
+                                )
+                                if (success) {
+                                    Toast.makeText(this@MainActivity, "Reporte enviado", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(this@MainActivity, "Error al enviar reporte", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                        .setNegativeButton("Cancelar", null)
+                        .show()
+                }
             }
 
             lifecycleScope.launch {
@@ -678,32 +718,6 @@ class MainActivity : AppCompatActivity() {
                     
                     user.fotoUrl?.let { profileBinding.ivAvatar.load(it) }
                     profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
-
-                    profileBinding.tabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
-                        override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
-                            if (tab?.position == 1) { // Publicaciones
-                                if (isOwnProfile) {
-                                    startActivity(Intent(this@MainActivity, MyPostsActivity::class.java))
-                                    profileBinding.tabLayout.getTabAt(0)?.select()
-                                } else {
-                                    // Para perfiles ajenos podrías cargar sus posts aquí si quieres
-                                    lifecycleScope.launch {
-                                        val posts = repository.getPublicacionesByAutor(user.uid ?: "")
-                                        // Podrías necesitar un adaptador de posts para el grid o lista
-                                        Toast.makeText(this@MainActivity, "Cargando ${posts.size} publicaciones", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            } else {
-                                profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
-                            }
-                        }
-                        override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
-                        override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
-                            if (tab?.position == 1 && isOwnProfile) {
-                                startActivity(Intent(this@MainActivity, MyPostsActivity::class.java))
-                            }
-                        }
-                    })
 
                     // Navegar a lista de seguidores/seguidos
                     profileBinding.llFollowers.setOnClickListener {
@@ -1006,39 +1020,18 @@ class MainActivity : AppCompatActivity() {
             ViewHolder(ItemRecipeFeedBinding.inflate(layoutInflater, parent, false))
             
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val item = items[position]
-            val isRecipe = item is Receta
+            val r = items[position] as Receta
             
-            val id: String?
-            val autorUid: String
-            val nombre: String
-            val descripcion: String?
-            val totalLikes: Int
-            val totalComentarios: Int
-            val categoria: String?
+            val id = r.id
+            val autorUid = r.autorUid
+            val nombre = r.nombre
+            val descripcion = r.descripcion
+            val totalLikes = r.totalLikes
+            val totalComentarios = r.totalComentarios
+            val categoria = r.categoria
 
-            if (isRecipe) {
-                val r = item as Receta
-                id = r.id
-                autorUid = r.autorUid
-                nombre = r.nombre
-                descripcion = r.descripcion
-                totalLikes = r.totalLikes
-                totalComentarios = r.totalComentarios
-                categoria = r.categoria
-                holder.binding.tvDifficulty.visibility = View.VISIBLE
-                holder.binding.tvDifficulty.text = getString(R.string.difficulty_format, r.dificultad?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } ?: "Media")
-            } else {
-                val p = item as Publicacion
-                id = p.id
-                autorUid = p.autorUid
-                nombre = "Publicación"
-                descripcion = p.descripcion
-                totalLikes = p.totalLikes
-                totalComentarios = p.totalComentarios
-                categoria = null
-                holder.binding.tvDifficulty.visibility = View.GONE
-            }
+            holder.binding.tvDifficulty.visibility = View.VISIBLE
+            holder.binding.tvDifficulty.text = getString(R.string.difficulty_format, r.dificultad?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } ?: "Media")
 
             holder.binding.tvTitle.text = nombre
             holder.binding.tvDescription.text = descripcion ?: "Sin descripción"
@@ -1056,7 +1049,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             lifecycleScope.launch {
-                val images = if (isRecipe) repository.getImagenesReceta(id ?: "") else repository.getImagenesPublicacion(id ?: "")
+                val images = repository.getImagenesReceta(id ?: "")
                 if (images.isNotEmpty()) {
                     holder.binding.ivRecipe.load(images[0]) {
                         crossfade(true)
@@ -1093,11 +1086,10 @@ class MainActivity : AppCompatActivity() {
 
                 lifecycleScope.launch {
                     try {
-                        val type = if (isRecipe) ResourceTypes.RECIPE else ResourceTypes.POST
+                        val type = ResourceTypes.RECIPE
                         repository.toggleLike(currentUid, id ?: "", type)
                         
                         // Sincronizar número real contando directamente en la tabla de likes
-                        // Esto evita depender de disparadores (triggers) que puedan fallar
                         val realLikeCount = repository.getLikeCount(id ?: "")
                         
                         withContext(Dispatchers.Main) {
@@ -1128,21 +1120,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             holder.binding.ivComment.setOnClickListener {
-                showComments(id ?: "", if (isRecipe) ResourceTypes.RECIPE else ResourceTypes.POST) { newCount ->
+                showComments(id ?: "", ResourceTypes.RECIPE) { newCount ->
                     holder.binding.tvCommentsCount.text = newCount.coerceAtLeast(0).toString()
                 }
             }
 
             holder.itemView.setOnClickListener {
-                if (isRecipe) {
-                    val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
-                    intent.putExtra("RECIPE_ID", id)
-                    startActivity(intent)
-                } else {
-                    val intent = Intent(this@MainActivity, PostDetailActivity::class.java)
-                    intent.putExtra("POST_ID", id)
-                    startActivity(intent)
-                }
+                val intent = Intent(this@MainActivity, RecipeDetailActivity::class.java)
+                intent.putExtra("RECIPE_ID", id)
+                startActivity(intent)
             }
         }
         override fun getItemCount() = items.size
