@@ -145,6 +145,15 @@
                 android:nestedScrollingEnabled="false"
                 tools:listitem="@layout/item_recipe_grid" />
 
+            <ProgressBar
+                android:id="@+id/progressBar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="32dp"
+                android:visibility="gone"
+                android:indeterminateTint="@color/orange_primary" />
+
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 

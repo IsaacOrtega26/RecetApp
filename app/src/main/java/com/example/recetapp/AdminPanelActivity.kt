@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import com.example.recetapp.databinding.ActivityAdminPanelBinding
 import com.example.recetapp.databinding.ItemRecipeGridBinding
+import com.example.recetapp.databinding.ItemReportAdminBinding
 import kotlinx.coroutines.launch
 
 class AdminPanelActivity : AppCompatActivity() {
@@ -30,6 +31,11 @@ class AdminPanelActivity : AppCompatActivity() {
     }
 
     private fun setupAdminContent() {
+        refreshData()
+    }
+
+    private fun refreshData() {
+        binding.progressBar.visibility = android.view.View.VISIBLE
         lifecycleScope.launch {
             try {
                 Log.d("RecetApp", "AdminPanel: Cargando datos...")
@@ -49,25 +55,52 @@ class AdminPanelActivity : AppCompatActivity() {
                 if (reports.isNotEmpty()) {
                     binding.rvReports.adapter = ReportAdapter(reports)
                 } else {
+                    // Si no hay reportes pendientes, mostrar mensaje o lista de recetas
                     binding.rvReports.adapter = AdminRecipeAdapter(allRecipes)
+                    if (allRecipes.isEmpty()) {
+                        Toast.makeText(this@AdminPanelActivity, "No hay contenido para mostrar", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 
             } catch (e: Exception) {
                 Log.e("RecetApp", "Error admin panel", e)
                 Toast.makeText(this@AdminPanelActivity, "Error al cargar datos: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                binding.progressBar.visibility = android.view.View.GONE
             }
         }
     }
 
     inner class ReportAdapter(private val list: List<Reporte>) : RecyclerView.Adapter<ReportAdapter.ViewHolder>() {
         override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(
-            LayoutInflater.from(p.context).inflate(android.R.layout.simple_list_item_2, p, false)
+            ItemReportAdminBinding.inflate(LayoutInflater.from(p.context), p, false)
         )
-        override fun onBindViewHolder(h: ViewHolder, pos: Int) {
+        override fun onBindViewHolder(holder: ViewHolder, pos: Int) {
             val item = list[pos]
-            h.itemView.findViewById<android.widget.TextView>(android.R.id.text1).text = "${item.tipoObjeto.uppercase()}: ${item.motivo}"
-            h.itemView.findViewById<android.widget.TextView>(android.R.id.text2).text = "ID: ${item.objetoId} - Estado: ${item.estado}"
-            h.itemView.setOnClickListener {
+            holder.binding.tvType.text = "${item.tipoObjeto} (${item.estado})"
+            holder.binding.tvReason.text = item.motivo
+            holder.binding.tvTargetId.text = "ID: ${item.objetoId}"
+
+            // Solo mostrar botones si está pendiente
+            val isPending = item.estado == "pendiente"
+            holder.binding.btnDismiss.isEnabled = isPending
+            holder.binding.btnDelete.isEnabled = isPending
+            holder.binding.btnDismiss.alpha = if (isPending) 1.0f else 0.5f
+            holder.binding.btnDelete.alpha = if (isPending) 1.0f else 0.5f
+
+            holder.binding.btnDismiss.setOnClickListener {
+                lifecycleScope.launch {
+                    val success = repository.resolveReporte(item.id ?: "", false)
+                    if (success) {
+                        Toast.makeText(this@AdminPanelActivity, "Reporte descartado", Toast.LENGTH_SHORT).show()
+                        refreshData()
+                    } else {
+                        Toast.makeText(this@AdminPanelActivity, "Error al actualizar reporte. Verifique permisos RLS.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+
+            holder.binding.btnView.setOnClickListener {
                 if (item.tipoObjeto == ResourceTypes.RECIPE) {
                     val intent = android.content.Intent(this@AdminPanelActivity, RecipeDetailActivity::class.java)
                     intent.putExtra("RECIPE_ID", item.objetoId)
@@ -76,11 +109,32 @@ class AdminPanelActivity : AppCompatActivity() {
                     val intent = android.content.Intent(this@AdminPanelActivity, PostDetailActivity::class.java)
                     intent.putExtra("POST_ID", item.objetoId)
                     startActivity(intent)
+                } else {
+                    Toast.makeText(this@AdminPanelActivity, "Vista no disponible para este tipo", Toast.LENGTH_SHORT).show()
                 }
+            }
+
+            holder.binding.btnDelete.setOnClickListener {
+                androidx.appcompat.app.AlertDialog.Builder(this@AdminPanelActivity)
+                    .setTitle("Eliminar contenido")
+                    .setMessage("¿Estás seguro de que deseas eliminar este contenido permanentemente?")
+                    .setPositiveButton("Eliminar") { _, _ ->
+                        lifecycleScope.launch {
+                            val success = repository.resolveReporte(item.id ?: "", true)
+                            if (success) {
+                                Toast.makeText(this@AdminPanelActivity, "Contenido eliminado y reporte revisado", Toast.LENGTH_SHORT).show()
+                                refreshData()
+                            } else {
+                                Toast.makeText(this@AdminPanelActivity, "Error al procesar eliminación. Verifique permisos RLS.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
             }
         }
         override fun getItemCount() = list.size
-        inner class ViewHolder(v: android.view.View) : RecyclerView.ViewHolder(v)
+        inner class ViewHolder(val binding: ItemReportAdminBinding) : RecyclerView.ViewHolder(binding.root)
     }
 
     inner class AdminRecipeAdapter(private val recipes: List<Receta>) : RecyclerView.Adapter<AdminRecipeAdapter.ViewHolder>() {

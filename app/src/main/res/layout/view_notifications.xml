@@ -41,4 +41,14 @@
         android:layout_height="match_parent"
         android:layout_marginTop="16dp" />
 
+    <TextView
+        android:id="@+id/tvEmptyNotif"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="100dp"
+        android:text="No tienes notificaciones aún"
+        android:textColor="@color/text_hint"
+        android:visibility="gone" />
+
 </LinearLayout>
