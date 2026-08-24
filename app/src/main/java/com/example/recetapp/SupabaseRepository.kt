@@ -387,7 +387,7 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
-    suspend fun deleteReceta(recetaId: String, autorUid: String) = withContext(Dispatchers.IO) {
+    suspend fun deleteReceta(recetaId: String, autorUid: String? = null) = withContext(Dispatchers.IO) {
         try {
             deleteIngredientes(recetaId)
             deletePasos(recetaId)
@@ -396,7 +396,7 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             supabase.from("recetas").delete {
                 filter { 
                     eq("receta_id", recetaId)
-                    eq("autor_uid", autorUid)
+                    if (autorUid != null) eq("autor_uid", autorUid)
                 }
             }
             true
@@ -463,13 +463,13 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
-    suspend fun deletePublicacion(postId: String, autorUid: String) = withContext(Dispatchers.IO) {
+    suspend fun deletePublicacion(postId: String, autorUid: String? = null) = withContext(Dispatchers.IO) {
         try {
             supabase.from("imagenes_publicacion").delete { filter { eq("publicacion_id", postId) } }
             supabase.from("publicaciones").delete {
                 filter {
                     eq("publicacion_id", postId)
-                    eq("autor_uid", autorUid)
+                    if (autorUid != null) eq("autor_uid", autorUid)
                 }
             }
             true
@@ -644,16 +644,19 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
-    suspend fun deleteComentario(comentarioId: String, usuarioUid: String) = withContext(Dispatchers.IO) {
+    suspend fun deleteComentario(comentarioId: String, usuarioUid: String? = null) = withContext(Dispatchers.IO) {
         try {
             supabase.from("comentarios").delete {
                 filter {
                     eq("comentario_id", comentarioId)
-                    eq("autor_uid", usuarioUid)
+                    if (usuarioUid != null) eq("autor_uid", usuarioUid)
                 }
             }
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { 
+            Log.e(TAG, "Error deleteComentario: ${e.message}")
+            false 
+        }
     }
 
     // --- SOCIAL: NOTIFICACIONES ---
@@ -720,8 +723,73 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
 
     suspend fun getReportes(): List<Reporte> = withContext(Dispatchers.IO) {
         try {
-            supabase.from("reportes").select().decodeList<Reporte>()
-        } catch (e: Exception) { emptyList() }
+            supabase.from("reportes").select {
+                filter { eq("estado", "pendiente") }
+                order("fecha_creacion", Order.DESCENDING)
+            }.decodeList<Reporte>()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getReportes: ${e.message}")
+            emptyList()
+        }
+    }
+
+    suspend fun deleteReporte(reporteId: String) = withContext(Dispatchers.IO) {
+        try {
+            supabase.from("reportes").delete {
+                filter { eq("reporte_id", reporteId) }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleteReporte: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun updateReporteEstado(reporteId: String, nuevoEstado: String) = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "updateReporteEstado: ID=$reporteId, Estado=$nuevoEstado")
+            supabase.from("reportes").update(mapOf("estado" to nuevoEstado)) {
+                filter { eq("reporte_id", reporteId) }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updateReporteEstado: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun resolveReporte(reporteId: String, deleteTarget: Boolean): Boolean = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "resolveReporte: ID=$reporteId, deleteTarget=$deleteTarget")
+            if (deleteTarget) {
+                val reporte = supabase.from("reportes").select {
+                    filter { eq("reporte_id", reporteId) }
+                }.decodeSingleOrNull<Reporte>()
+                
+                if (reporte != null) {
+                    val success = when (reporte.tipoObjeto) {
+                        ResourceTypes.RECIPE -> deleteReceta(reporte.objetoId)
+                        ResourceTypes.POST -> deletePublicacion(reporte.objetoId)
+                        ResourceTypes.COMMENT -> deleteComentario(reporte.objetoId)
+                        else -> false
+                    }
+                    
+                    if (success) {
+                        return@withContext updateReporteEstado(reporteId, "revisado")
+                    } else {
+                        Log.e(TAG, "resolveReporte: Falló la eliminación del objeto ${reporte.tipoObjeto}:${reporte.objetoId}")
+                        return@withContext false
+                    }
+                }
+                return@withContext false
+            } else {
+                // Para ignorar, simplemente marcamos como ignorado
+                return@withContext updateReporteEstado(reporteId, "ignorado")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolveReporte: ${e.message}")
+            false
+        }
     }
 
     // --- SOCIAL: SEGUIDORES ---
