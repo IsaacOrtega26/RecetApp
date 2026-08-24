@@ -83,7 +83,7 @@ data class Comentario(
 
 @Serializable
 data class Reporte(
-    val id: String? = null,
+    @SerialName("reporte_id") val id: String? = null,
     @SerialName("reportante_uid") val reportanteUid: String,
     @SerialName("objeto_id") val objetoId: String,
     @SerialName("tipo_objeto") val tipoObjeto: String, // 'receta', 'publicacion', 'usuario'
