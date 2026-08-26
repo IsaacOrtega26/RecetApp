@@ -274,10 +274,31 @@
                 app:icon="@android:drawable/ic_lock_lock"
                 app:iconTint="@color/orange_primary" />
 
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/tabLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                app:tabIndicatorColor="@color/orange_primary"
+                app:tabSelectedTextColor="@color/orange_primary"
+                app:tabTextColor="@color/text_hint">
+
+                <com.google.android.material.tabs.TabItem
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Recetas" />
+
+                <com.google.android.material.tabs.TabItem
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Favoritos" />
+            </com.google.android.material.tabs.TabLayout>
+
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rvRecipes"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
                 android:nestedScrollingEnabled="false"
                 app:layoutManager="androidx.recyclerview.widget.GridLayoutManager"
                 app:spanCount="2" />

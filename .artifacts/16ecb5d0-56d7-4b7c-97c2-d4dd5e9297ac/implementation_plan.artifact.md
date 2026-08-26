@@ -1,37 +1,47 @@
-# Plan de implementación: Solución Definitiva de Solicitudes, Contadores e Interfaz
+# Compartido Enriquecido de Recetas
 
-Este plan garantiza que las solicitudes de seguimiento se eliminen instantáneamente al ser aceptadas, que los contadores de seguidores sean siempre precisos y que los botones de navegación sean totalmente accesibles.
+Este plan detalla la implementación de una función de compartido "Rich" que incluye imagen, detalles completos de la receta (nombre, tiempo, ingredientes, pasos) y una invitación a descargar la app.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> Se implementará "Optimistic UI" en la lista de solicitudes: al presionar aceptar, el usuario desaparecerá de la lista inmediatamente en la pantalla, mientras la operación se procesa en segundo plano. Esto da la sensación de rapidez de Instagram.
-
-> [!TIP]
-> Se ha aumentado el margen superior a **60px** para garantizar que ningún elemento de la interfaz quede oculto por la cámara o la barra de estado.
+> Para compartir la imagen físicamente con apps como WhatsApp o Instagram, necesitaremos configurar un `FileProvider`. Esto permite que otras aplicaciones lean temporalmente el archivo de imagen descargado.
 
 ## Proposed Changes
 
-### [Social / Repositorio]
+### [Componente] Configuración de Android
 
-#### [MODIFY] [SupabaseRepository.kt](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/java/com/example/recetapp/SupabaseRepository.kt)
-- **Aceptar/Rechazar**: Se usará el `solicitudId` (Primary Key) para eliminar el registro de forma exacta.
-- **Sincronización**: Se ha verificado que `getUsuarioByUid` realice un recuento real de filas, lo que garantiza que los números de seguidores sean siempre los correctos sin importar fallos previos.
+#### [MODIFY] [AndroidManifest.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/AndroidManifest.xml)
+- Añadir la declaración del `FileProvider` para permitir el compartido de archivos temporales.
 
-### [UI / Actividad Principal]
+#### [NEW] [file_paths.xml](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/res/xml/file_paths.xml)
+- Definir la ruta de caché para las imágenes temporales compartidas.
+
+### [Componente] Lógica de Compartido
+
+#### [NEW] [ShareManager.kt](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/java/com/example/recetapp/ShareManager.kt)
+- Crear una clase utilitaria para:
+    - Formatear el texto de la receta (Título, Tiempo, Ingredientes con viñetas, Pasos numerados).
+    - Incluir el mensaje de invitación: "Para ver mas recetas como esta te invito a usar nuestra app: RecetApp".
+    - Descargar la imagen de la receta a un archivo temporal.
+    - Lanzar el `Intent.ACTION_SEND` con el texto y el URI de la imagen.
+
+### [Componente] UI (MainActivity y RecipeDetailActivity)
+
+#### [MODIFY] [RecipeDetailActivity.kt](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/java/com/example/recetapp/RecipeDetailActivity.kt)
+- Actualizar el menú de compartido para usar el nuevo `ShareManager`.
+- Ofrecer la opción de "Enviar a un amigo en RecetApp" (compartido interno) o "Compartir en otras aplicaciones" (WhatsApp, IG, etc.).
 
 #### [MODIFY] [MainActivity.kt](file:///C:/Users/Brittany Barquero/Downloads/RecetApp/app/src/main/java/com/example/recetapp/MainActivity.kt)
-- **FollowRequestAdapter**: Se cambiará la lógica para que el adaptador maneje una lista mutable. Al aceptar/rechazar, se eliminará el elemento de la lista local e inmediatamente se notificará al adaptador (`notifyItemRemoved`), logrando el efecto de desaparición instantánea.
-- **Seguimiento Mutuo**: Se añadirá el botón "Seguir también" en la lógica del diálogo si es necesario.
+- Habilitar el botón `ivShare` en el `RecipeFeedAdapter` para usar el `ShareManager`.
 
-### [UI / Ajustes de Diseño]
+## Plan de Verificación
 
-#### [MODIFY] Ajustar padding superior en Actividades:
-- Se aumentará el padding superior a `systemBars.top + 60` en todas las actividades críticas para bajar los encabezados y liberar los botones de atrás.
+### Pruebas Manuales
+1.  **WhatsApp**: Compartir una receta. Verificar que llega la imagen, el texto estructurado (ingredientes y pasos) y la invitación final.
+2.  **Instagram**: Verificar que se puede compartir la imagen y el texto (aunque IG suele priorizar la imagen, el texto irá al portapapeles o como pie de foto).
+3.  **Chat Interno**: Verificar que al enviar a un amigo dentro de RecetApp, el mensaje contiene toda la información formateada.
 
-## Verification Plan
-
-### Manual Verification
-1.  **Aceptación Instantánea**: Abrir solicitudes, presionar "+". El usuario debe desaparecer de la lista de inmediato.
-2.  **Contadores**: Verificar que al volver al perfil, el número de seguidores es exacto.
-3.  **Botón Atrás**: Verificar que en todos los dispositivos el botón de atrás es fácil de presionar y tiene suficiente espacio superior.
+## Preguntas Abiertas
+- ¿Deseas que los ingredientes tengan algún formato especial (ej. usar emojis de comida 🥕 🥣)?
+- ¿Hay algún enlace específico de descarga que debamos incluir en la invitación?

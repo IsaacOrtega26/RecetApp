@@ -124,6 +124,16 @@
                 android:src="@android:drawable/ic_menu_share"
                 app:tint="@color/text_primary" />
 
+            <ImageView
+                android:id="@+id/ivSave"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginStart="24dp"
+                android:src="@android:drawable/btn_star"
+                app:tint="@color/text_primary"
+                android:clickable="true"
+                android:focusable="true" />
+
         </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 

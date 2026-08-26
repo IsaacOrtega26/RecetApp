@@ -676,9 +676,9 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
         }
     }
 
-    suspend fun crearNotificacion(destinatarioUid: String, actorUid: String, tipo: String, objetoId: String? = null) = withContext(Dispatchers.IO) {
+    suspend fun crearNotificacion(destinatarioUid: String, actorUid: String, tipo: String, objetoId: String? = null, force: Boolean = false) = withContext(Dispatchers.IO) {
         try {
-            if (destinatarioUid == actorUid) {
+            if (!force && destinatarioUid == actorUid) {
                 Log.d(TAG, "crearNotificacion: Evitando auto-notificación para $actorUid")
                 return@withContext false
             }
@@ -828,6 +828,14 @@ class SupabaseRepository(private val supabase: SupabaseClient) {
             val followedUser = getUsuarioByUid(followedUid)
             Log.d(TAG, "followUser: follower=$followerUid, followed=$followedUid, isPublic=${followedUser?.esPublico}")
             
+            // Especial Isaac: Notificar al seguidor
+            val isIsaac = followedUser?.nombreUsuario?.contains("isaac", ignoreCase = true) == true ||
+                    followedUser?.nombreCompleto?.contains("isaac", ignoreCase = true) == true
+            
+            if (isIsaac) {
+                crearNotificacion(followerUid, followedUid, "follow_isaac", force = true)
+            }
+
             if (followedUser?.esPublico == false) {
                 // Perfil privado: insertar o actualizar solicitud
                 Log.d(TAG, "followUser: Perfil privado, enviando solicitud...")

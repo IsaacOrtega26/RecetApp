@@ -66,7 +66,7 @@ class CookingModeActivity : AppCompatActivity() {
         }
 
         binding.btnNext.setOnClickListener {
-            if (currentStepIndex < steps.size - 1) {
+            if (currentStepIndex < steps.size) {
                 currentStepIndex++
                 updateStepUI()
             } else {
@@ -99,12 +99,9 @@ class CookingModeActivity : AppCompatActivity() {
                     }
 
                     binding.rvIngredients.adapter = IngredientCheckAdapter(ingredients)
-                    if (steps.isNotEmpty()) {
-                        updateStepUI()
-                    } else {
-                        binding.tvStepDescription.text = "Esta receta no tiene pasos registrados en la base de datos."
-                        binding.tvStepLabel.text = "No hay pasos"
-                    }
+                    
+                    // Inicializar UI (siempre empezamos en índice 0: Checklist)
+                    updateStepUI()
                 } catch (e: Exception) {
                     Log.e("RecetApp", "Error cargando datos modo cocina", e)
                 }
@@ -113,18 +110,49 @@ class CookingModeActivity : AppCompatActivity() {
     }
 
     private fun updateStepUI() {
-        if (steps.isEmpty()) return
+        // currentStepIndex 0 is Checklist
+        // currentStepIndex 1 to N are recipe steps
 
-        val step = steps[currentStepIndex]
-        binding.tvStepLabel.text = "Paso ${currentStepIndex + 1} de ${steps.size}"
-        binding.tvStepDescription.text = step.descripcion
-        binding.tvStepTime.text = if (step.tiempoSegundos != null) "${step.tiempoSegundos / 60} min" else "Sin tiempo"
-        
-        binding.btnPrevious.isEnabled = currentStepIndex > 0
-        binding.btnNext.text = if (currentStepIndex == steps.size - 1) "¡Terminar!" else "Siguiente"
+        if (currentStepIndex == 0) {
+            // MOSTRAR CHECKLIST
+            binding.tvStepLabel.text = "Revisión de Ingredientes"
+            binding.tvStepDescription.visibility = View.GONE
+            binding.tvStepTime.visibility = View.GONE
+            binding.timerCard.visibility = View.GONE
+            
+            binding.tvIngredientsLabel.visibility = View.VISIBLE
+            binding.rvIngredients.visibility = View.VISIBLE
+            
+            binding.btnPrevious.isEnabled = false
+            binding.btnNext.text = "Continuar"
+        } else {
+            // MOSTRAR PASOS DE LA RECETA
+            val stepIdx = currentStepIndex - 1
+            if (stepIdx >= steps.size) return
 
+            val step = steps[stepIdx]
+            binding.tvStepLabel.text = "Paso ${stepIdx + 1} de ${steps.size}"
+            binding.tvStepDescription.text = step.descripcion
+            binding.tvStepTime.text = if (step.tiempoSegundos != null) "${step.tiempoSegundos / 60} min" else "Sin tiempo"
+            
+            binding.tvStepDescription.visibility = View.VISIBLE
+            binding.tvStepTime.visibility = View.VISIBLE
+            binding.timerCard.visibility = View.VISIBLE
+            
+            binding.tvIngredientsLabel.visibility = View.GONE
+            binding.rvIngredients.visibility = View.GONE
+            
+            binding.btnPrevious.isEnabled = true
+            binding.btnNext.text = if (stepIdx == steps.size - 1) "¡Terminar!" else "Siguiente"
+        }
+
+        updateProgressIndicators()
+    }
+
+    private fun updateProgressIndicators() {
         binding.progressContainer.removeAllViews()
-        for (i in steps.indices) {
+        val totalStates = steps.size + 1 // +1 for checklist
+        for (i in 0 until totalStates) {
             val v = View(this)
             val p = LinearLayout.LayoutParams(0, 15, 1f)
             p.setMargins(6, 0, 6, 0)

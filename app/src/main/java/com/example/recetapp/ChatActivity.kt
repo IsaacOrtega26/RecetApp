@@ -1,6 +1,7 @@
 package com.example.recetapp
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -58,10 +59,22 @@ class ChatActivity : AppCompatActivity() {
 
     private fun checkRecipeShare() {
         val recipeId = intent.getStringExtra("RECIPE_ID")
-        val recipeName = intent.getStringExtra("RECIPE_NAME")
-        if (recipeId != null && recipeName != null) {
-            val shareText = "¡Hola! Mira esta receta: $recipeName\n(Enlace: recetapp://recipe/$recipeId)"
-            binding.etMessage.setText(shareText)
+        if (recipeId != null) {
+            lifecycleScope.launch {
+                try {
+                    val recipe = repository.getRecetaById(recipeId)
+                    if (recipe != null) {
+                        val ingredients = repository.getIngredientes(recipeId)
+                        val steps = repository.getPasos(recipeId)
+                        val enrichedText = ShareManager.generateShareText(recipe, ingredients, steps)
+                        withContext(Dispatchers.Main) {
+                            binding.etMessage.setText(enrichedText)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("RecetApp", "Error al cargar receta para compartir en chat", e)
+                }
+            }
         }
     }
 

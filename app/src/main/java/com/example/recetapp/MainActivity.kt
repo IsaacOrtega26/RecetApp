@@ -247,6 +247,7 @@ class MainActivity : AppCompatActivity() {
             "solicitud" -> "Has recibido una solicitud de seguimiento"
             "solicitud_aceptada" -> "Tu solicitud de seguimiento fue aceptada"
             "mensaje" -> "Nuevo mensaje recibido"
+            "follow_isaac" -> "¡Has comenzado a seguir a Isaac!"
             else -> "Nueva actividad en tu cuenta"
         }
         
@@ -495,6 +496,7 @@ class MainActivity : AppCompatActivity() {
                 "solicitud" -> "quiere seguirte"
                 "solicitud_aceptada" -> "aceptó tu solicitud de seguimiento"
                 "mensaje" -> "te envió un mensaje"
+                "follow_isaac" -> "¡Ahora sigues a esta leyenda!"
                 else -> "interactuó contigo"
             }
             h.binding.tvContent.text = text
@@ -520,7 +522,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }
-                    "seguidor", "solicitud_aceptada" -> {
+                    "seguidor", "solicitud_aceptada", "follow_isaac" -> {
                         showProfile(n.actorUid)
                     }
                     "solicitud" -> {
@@ -718,6 +720,28 @@ class MainActivity : AppCompatActivity() {
                     
                     user.fotoUrl?.let { profileBinding.ivAvatar.load(it) }
                     profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
+
+                    profileBinding.tabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+                        override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
+                            lifecycleScope.launch {
+                                if (tab?.position == 1) { // Favoritos
+                                    val savedRecipes = repository.getRecetasGuardadas(user.uid ?: "")
+                                    profileBinding.rvRecipes.adapter = RecipeGridAdapter(savedRecipes)
+                                } else { // Mis Recetas
+                                    profileBinding.rvRecipes.adapter = RecipeGridAdapter(recipes)
+                                }
+                            }
+                        }
+                        override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+                        override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
+                            if (tab?.position == 1) {
+                                lifecycleScope.launch {
+                                    val savedRecipes = repository.getRecetasGuardadas(user.uid ?: "")
+                                    profileBinding.rvRecipes.adapter = RecipeGridAdapter(savedRecipes)
+                                }
+                            }
+                        }
+                    })
 
                     // Navegar a lista de seguidores/seguidos
                     profileBinding.llFollowers.setOnClickListener {
@@ -983,11 +1007,14 @@ class MainActivity : AppCompatActivity() {
     inner class RecipeFeedAdapter(private var items: List<Any>) : RecyclerView.Adapter<RecipeFeedAdapter.ViewHolder>() {
         
         private val likedIds = mutableSetOf<String>()
+        private val savedIds = mutableSetOf<String>()
         private var isFetchingLikes = false
+        private var isFetchingSaved = false
 
         fun updateItems(newItems: List<Any>) {
             items = newItems
             if (!isFetchingLikes) fetchLikes()
+            if (!isFetchingSaved) fetchSaved()
             notifyDataSetChanged()
         }
         
@@ -1000,7 +1027,7 @@ class MainActivity : AppCompatActivity() {
                     likedIds.clear()
                     likedIds.addAll(ids)
                     withContext(Dispatchers.Main) {
-                        notifyDataSetChanged() // Refrescar corazones con datos reales
+                        notifyDataSetChanged()
                     }
                 } catch (e: Exception) { 
                     Log.e("RecetApp", "Error al refrescar likes: ${e.message}")
@@ -1010,9 +1037,29 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        private fun fetchSaved() {
+            val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
+            isFetchingSaved = true
+            lifecycleScope.launch {
+                try {
+                    val saved = repository.getRecetasGuardadas(uid).mapNotNull { it.id }
+                    savedIds.clear()
+                    savedIds.addAll(saved)
+                    withContext(Dispatchers.Main) {
+                        notifyDataSetChanged()
+                    }
+                } catch (e: Exception) {
+                    Log.e("RecetApp", "Error al refrescar guardados: ${e.message}")
+                } finally {
+                    isFetchingSaved = false
+                }
+            }
+        }
+
         fun updateRecipes(newRecipes: List<Receta>) {
             items = newRecipes
             fetchLikes()
+            fetchSaved()
             notifyDataSetChanged()
         }
 
@@ -1119,9 +1166,60 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // GUARDADO
+            val isSaved = savedIds.contains(id ?: "")
+            if (isSaved) {
+                holder.binding.ivSave.setImageResource(android.R.drawable.btn_star_big_on)
+                holder.binding.ivSave.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+            } else {
+                holder.binding.ivSave.setImageResource(android.R.drawable.btn_star_big_off)
+                holder.binding.ivSave.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
+            }
+
+            holder.binding.ivSave.setOnClickListener {
+                val currentUid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@setOnClickListener
+                val alreadySaved = savedIds.contains(id ?: "")
+                
+                // Optimista
+                if (!alreadySaved) {
+                    savedIds.add(id ?: "")
+                    holder.binding.ivSave.setImageResource(android.R.drawable.btn_star_big_on)
+                    holder.binding.ivSave.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.orange_primary))
+                } else {
+                    savedIds.remove(id ?: "")
+                    holder.binding.ivSave.setImageResource(android.R.drawable.btn_star_big_off)
+                    holder.binding.ivSave.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.text_primary))
+                }
+
+                lifecycleScope.launch {
+                    try {
+                        repository.toggleSave(currentUid, id ?: "", ResourceTypes.RECIPE)
+                    } catch (e: Exception) {
+                        Log.e("RecetApp", "Error al toggleSave: ${e.message}")
+                    }
+                }
+            }
+
             holder.binding.ivComment.setOnClickListener {
                 showComments(id ?: "", ResourceTypes.RECIPE) { newCount ->
                     holder.binding.tvCommentsCount.text = newCount.coerceAtLeast(0).toString()
+                }
+            }
+
+            holder.binding.ivShare.setOnClickListener {
+                lifecycleScope.launch {
+                    val ingredients = repository.getIngredientes(id ?: "")
+                    val steps = repository.getPasos(id ?: "")
+                    val images = repository.getImagenesReceta(id ?: "")
+                    val imageUrl = if (images.isNotEmpty()) images[0] else null
+                    
+                    ShareManager.shareRecipe(
+                        context = this@MainActivity,
+                        recipe = r,
+                        ingredients = ingredients,
+                        steps = steps,
+                        imageUrl = imageUrl
+                    )
                 }
             }
 

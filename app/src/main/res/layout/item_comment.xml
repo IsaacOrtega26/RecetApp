@@ -54,4 +54,16 @@
         android:src="@android:drawable/ic_menu_delete"
         android:visibility="gone" />
 
+    <ImageView
+        android:id="@+id/btnReportComment"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="4dp"
+        android:padding="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Reportar comentario"
+        android:src="@android:drawable/ic_menu_info_details"
+        android:visibility="gone"
+        app:tint="@color/text_hint" />
+
 </LinearLayout>

@@ -58,11 +58,21 @@ class RecipeDetailActivity : AppCompatActivity() {
                     true
                 }
                 R.id.action_share -> {
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, "¡Mira esta receta: ${currentRecipe?.nombre}!\n\n${currentRecipe?.descripcion}")
+                    lifecycleScope.launch {
+                        val recipe = currentRecipe ?: return@launch
+                        val ingredients = repository.getIngredientes(recipeId ?: "")
+                        val steps = repository.getPasos(recipeId ?: "")
+                        val images = repository.getImagenesReceta(recipeId ?: "")
+                        val imageUrl = if (images.isNotEmpty()) images[0] else null
+                        
+                        ShareManager.shareRecipe(
+                            context = this@RecipeDetailActivity,
+                            recipe = recipe,
+                            ingredients = ingredients,
+                            steps = steps,
+                            imageUrl = imageUrl
+                        )
                     }
-                    startActivity(Intent.createChooser(shareIntent, "Compartir"))
                     true
                 }
                 R.id.action_report -> {

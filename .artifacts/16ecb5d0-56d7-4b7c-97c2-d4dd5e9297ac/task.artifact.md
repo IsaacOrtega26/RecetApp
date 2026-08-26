@@ -1,7 +1,6 @@
-# Tareas: Solución de Solicitudes, Contadores e Interfaz
-
-- `[x]` Optimizar `aceptarSolicitud` y `rechazarSolicitud` (Eliminación por ID exacto)
-- `[x]` Implementar UI Optimista en `FollowRequestAdapter` (`MainActivity.kt`)
-- `[x]` Aumentar padding superior a +60px en actividades críticas
-- `[x]` Verificar precisión de contadores y accesibilidad de botones
-
+- `[x]` Configurar `FileProvider` en `AndroidManifest.xml` y `res/xml/file_paths.xml`
+- `[x]` Crear `ShareManager.kt` para formatear el texto y descargar la imagen
+- `[x]` Habilitar compartido enriquecido en `RecipeDetailActivity.kt`
+- `[x]` Habilitar el botón de compartir en el feed de `MainActivity.kt`
+- `[x]` Mejorar el compartido interno en `ChatActivity.kt` usando el texto enriquecido
+- `[x]` Verificación final del formato del mensaje
